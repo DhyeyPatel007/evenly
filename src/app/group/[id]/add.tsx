@@ -1,46 +1,104 @@
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useHisab } from '@/store';
 import { resolveSplits, type ShareInput } from '@/settle';
-import { inr, todayISO } from '@/format';
-import { C, R, S } from '@/theme';
+import { fmtDateFull, inr, todayISO } from '@/format';
+import { C, F, R, S } from '@/theme';
 import { Avatar } from '@/components/Avatar';
-import { Btn, Card, Header, Screen, Seg } from '@/components/ui';
-import { CATEGORY_LIST, type Category, type SplitMode } from '@/types';
+import { Amount, Btn, Card, Field, Header, Screen, Seg, TextField } from '@/components/ui';
+import { CATEGORY_LIST, type Category, type Expense, type Member, type SplitMode } from '@/types';
 
 const MODES: { label: string; value: SplitMode; hint: string }[] = [
-  { label: 'Equal', value: 'equal', hint: 'Split evenly' },
-  { label: 'Shares', value: 'shares', hint: 'e.g. 2 shares vs 1' },
-  { label: '%', value: 'percent', hint: 'Percentages' },
-  { label: 'Exact', value: 'exact', hint: 'Exact ₹ amounts' },
+  { label: 'Equal', value: 'equal', hint: 'Split evenly between selected members.' },
+  { label: 'Shares', value: 'shares', hint: 'Weighted by shares — e.g. 2 shares vs 1.' },
+  { label: '%', value: 'percent', hint: 'Split by percentage (must total 100%).' },
+  { label: 'Exact', value: 'exact', hint: 'Enter the exact ₹ each person owes.' },
 ];
 
-export default function AddExpense() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const { groups, memberById, addExpense } = useHisab();
-  const group = groups.find((g) => g.id === id);
+function isoOf(d: Date): string {
+  const m = `${d.getMonth() + 1}`.padStart(2, '0');
+  const day = `${d.getDate()}`.padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+function dateOf(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
 
-  const gMembers = (group?.memberIds ?? []).map((m) => memberById(m)).filter((m) => m !== undefined);
-  const [desc, setDesc] = useState('');
-  const [amountStr, setAmountStr] = useState('');
-  const [cat, setCat] = useState<Category>('Food');
-  const [paidBy, setPaidBy] = useState('u1');
-  const [mode, setMode] = useState<SplitMode>('equal');
-  const [included, setIncluded] = useState<Record<string, boolean>>({});
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [recurring, setRecurring] = useState(false);
+export default function AddExpense() {
+  const { id, edit } = useLocalSearchParams<{ id: string; edit?: string }>();
+  const { ready, groups, expenseById } = useHisab();
+  const group = groups.find((g) => g.id === id);
+  const editing = edit ? expenseById(edit) : undefined;
+
+  if (!ready) return <Screen><Text style={styles.loading}>Loading…</Text></Screen>;
+  if (!group) return <Screen><Header title={edit ? 'Edit expense' : 'New expense'} onBack /></Screen>;
+  // key remounts the form per expense; lazy state init then always sees final data
+  return <ExpenseForm key={edit ?? 'new'} groupId={group.id} groupName={group.name} initial={editing} />;
+}
+
+function ExpenseForm({
+  groupId,
+  groupName,
+  initial,
+}: {
+  groupId: string;
+  groupName: string;
+  initial?: Expense;
+}) {
+  const { activeMembers, memberById, addExpense, updateExpense } = useHisab();
+
+  const baseMembers = activeMembers(groupId);
+  // Keep archived members visible (read-only) if they're part of the expense being edited.
+  const formMembers: Member[] = useMemo(() => {
+    if (!initial) return baseMembers;
+    const extra = initial.splits
+      .map((s) => memberById(s.memberId))
+      .filter((m): m is Member => !!m && !m.active && !baseMembers.some((b) => b.id === m.id));
+    return [...baseMembers, ...extra];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const defaultPayer = () => {
+    if (initial) return initial.paidBy;
+    const me = formMembers.find((m) => m.isSelf);
+    return me ? me.id : (formMembers[0]?.id ?? '');
+  };
+
+  const [desc, setDesc] = useState(initial?.description ?? '');
+  const [amountStr, setAmountStr] = useState(initial ? String(initial.amount) : '');
+  const [cat, setCat] = useState<Category>(initial?.category ?? 'Food');
+  const [paidBy, setPaidBy] = useState(defaultPayer);
+  const [date, setDate] = useState(initial?.date ?? todayISO());
+  const [showDate, setShowDate] = useState(false);
+  const [note, setNote] = useState(initial?.note ?? '');
+  const [mode, setMode] = useState<SplitMode>(initial?.splitMode ?? 'equal');
+  const [included, setIncluded] = useState<Record<string, boolean>>(() => {
+    if (!initial) return {};
+    const inc: Record<string, boolean> = {};
+    for (const s of initial.splits) inc[s.memberId] = true;
+    return inc;
+  });
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    if (!initial || initial.splitMode === 'equal') return {};
+    const vals: Record<string, string> = {};
+    for (const s of initial.splits) vals[s.memberId] = String(s.amount);
+    return vals;
+  });
 
   const amount = parseFloat(amountStr) || 0;
   const isIn = (mid: string) => included[mid] !== false;
 
   const shareInputs: ShareInput[] = useMemo(
     () =>
-      gMembers
-        .filter((m) => isIn(m!.id))
-        .map((m) => ({ memberId: m!.id, value: parseFloat(values[m!.id] || '') || 0 })),
+      formMembers
+        .filter((m) => m.active && isIn(m.id))
+        .map((m) => ({ memberId: m.id, value: parseFloat(values[m.id] || '') || 0 })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [gMembers, included, values, mode],
+    [formMembers, included, values],
   );
 
   const splits = useMemo(
@@ -48,47 +106,81 @@ export default function AddExpense() {
     [amount, mode, shareInputs],
   );
 
-  const exactSum = splits.reduce((a, s) => a + s.amount, 0);
-  const exactOk = mode !== 'exact' || Math.abs(exactSum - amount) < 0.005;
-  const valid = desc.trim().length > 0 && amount > 0 && shareInputs.length > 0 && exactOk;
+  const splitSum = splits.reduce((a, s) => a + s.amount, 0);
+  const modeOk =
+    mode === 'percent'
+      ? Math.abs(shareInputs.reduce((a, s) => a + s.value, 0) - 100) < 0.005
+      : mode === 'exact'
+        ? Math.abs(splitSum - amount) < 0.005
+        : true;
+
+  const valid =
+    desc.trim().length > 0 && amount > 0 && paidBy && shareInputs.length > 0 && modeOk;
 
   const save = () => {
-    if (!valid || !group) return;
-    addExpense({
-      groupId: group.id,
+    if (!valid) return;
+    const payload = {
+      groupId,
       description: desc.trim(),
       amount: Math.round(amount * 100) / 100,
       paidBy,
       category: cat,
-      date: todayISO(),
+      date,
       splitMode: mode,
       splits,
-      ...(recurring ? { recurring: 'monthly' as const } : {}),
-    });
+      note: note.trim() || undefined,
+    };
+    if (initial) updateExpense(initial.id, payload);
+    else addExpense(payload);
     router.back();
   };
 
-  if (!group) return <Screen><Header title="New expense" onBack /></Screen>;
+  const payer = memberById(paidBy);
 
   return (
     <Screen>
-      <Header title="New expense" subtitle={group.name} onBack />
+      <Header title={initial ? 'Edit expense' : 'New expense'} subtitle={groupName} onBack />
       <ScrollView contentContainerStyle={{ gap: S.md, paddingBottom: S.xl }} showsVerticalScrollIndicator={false}>
-        <Card>
-          <Text style={styles.label}>What was it for?</Text>
-          <TextInput
-            placeholder="e.g. Dinner at Domino's" placeholderTextColor={C.faint}
-            value={desc} onChangeText={setDesc} style={styles.input} autoFocus
-          />
-          <Text style={[styles.label, { marginTop: S.md }]}>Amount</Text>
-          <View style={styles.amountWrap}>
-            <Text style={styles.rupee}>₹</Text>
-            <TextInput
-              placeholder="0" placeholderTextColor={C.faint} value={amountStr}
-              onChangeText={(t) => setAmountStr(t.replace(/[^0-9.]/g, ''))}
-              style={styles.amountInput} keyboardType="decimal-pad"
-            />
+        <Card style={{ gap: S.md }}>
+          <Field label="Description">
+            <TextField placeholder="e.g. Dinner at Domino's" value={desc} onChangeText={setDesc} autoFocus={!initial} />
+          </Field>
+          <View style={styles.twoCol}>
+            <View style={{ flex: 1 }}>
+              <Field label="Amount">
+                <View style={styles.amountWrap}>
+                  <Text style={styles.rupee}>₹</Text>
+                  <TextField
+                    placeholder="0"
+                    value={amountStr}
+                    onChangeText={(t) => setAmountStr(t.replace(/[^0-9.]/g, ''))}
+                    keyboardType="decimal-pad"
+                    style={styles.amountInput}
+                  />
+                </View>
+              </Field>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field label="Date">
+                <Pressable onPress={() => setShowDate(true)} style={styles.dateBtn}>
+                  <Ionicons name="calendar-outline" size={16} color={C.muted} />
+                  <Text style={styles.dateTxt}>{fmtDateFull(date)}</Text>
+                </Pressable>
+              </Field>
+            </View>
           </View>
+          {showDate && (
+            <DateTimePicker
+              value={dateOf(date)}
+              mode="date"
+              display="default"
+              maximumDate={new Date()}
+              onChange={(_, d) => {
+                setShowDate(false);
+                if (d) setDate(isoOf(d));
+              }}
+            />
+          )}
         </Card>
 
         <View>
@@ -105,11 +197,11 @@ export default function AddExpense() {
         <View>
           <Text style={styles.label}>Paid by</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: S.sm }}>
-            {gMembers.map((m) => (
-              <Pressable key={m!.id} onPress={() => setPaidBy(m!.id)} style={[styles.payer, paidBy === m!.id && styles.payerActive]}>
-                <Avatar name={m!.name} color={m!.color} size={40} />
-                <Text style={[styles.payerTxt, paidBy === m!.id && styles.payerTxtActive]} numberOfLines={1}>
-                  {m!.name.split(' ')[0]}
+            {formMembers.filter((m) => m.active).map((m) => (
+              <Pressable key={m.id} onPress={() => setPaidBy(m.id)} style={[styles.payer, paidBy === m.id && styles.payerActive]}>
+                <Avatar name={m.name} colorIdx={m.colorIdx} size={40} />
+                <Text style={[styles.payerTxt, paidBy === m.id && styles.payerTxtActive]} numberOfLines={1}>
+                  {m.isSelf ? 'You' : m.name.split(' ')[0]}
                 </Text>
               </Pressable>
             ))}
@@ -126,108 +218,135 @@ export default function AddExpense() {
           <Text style={styles.hint}>{MODES.find((m) => m.value === mode)?.hint}</Text>
         </View>
 
-        <Card>
-          {gMembers.map((m) => {
-            const inc = isIn(m!.id);
-            const split = splits.find((s) => s.memberId === m!.id);
+        <Card style={{ paddingVertical: S.sm }}>
+          {formMembers.map((m) => {
+            const inc = isIn(m.id);
+            const split = splits.find((s) => s.memberId === m.id);
+            const archived = !m.active;
             return (
-              <View key={m!.id}>
+              <View key={m.id} style={styles.memberBlock}>
                 <View style={styles.memberRow}>
                   <Pressable
-                    onPress={() => mode === 'equal' && setIncluded((p) => ({ ...p, [m!.id]: !isIn(m!.id) }))}
+                    onPress={() => !archived && mode === 'equal' && setIncluded((p) => ({ ...p, [m.id]: !isIn(m.id) }))}
                     style={styles.memberLeft}
+                    disabled={archived}
                   >
-                    {mode === 'equal' && (
+                    {mode === 'equal' && !archived && (
                       <View style={[styles.check, inc && styles.checkOn]}>
-                        {inc && <Text style={styles.checkTxt}>✓</Text>}
+                        {inc && <Ionicons name="checkmark" size={14} color={C.white} />}
                       </View>
                     )}
-                    <Avatar name={m!.name} color={m!.color} size={38} />
-                    <Text style={[styles.memberName, !inc && styles.dimmed]}>
-                      {m!.name === 'Aarav Mehta' ? 'You' : m!.name}
-                    </Text>
+                    <Avatar name={m.name} colorIdx={m.colorIdx} size={38} />
+                    <View>
+                      <Text style={[styles.memberName, (!inc || archived) && styles.dimmed]}>
+                        {m.isSelf ? 'You' : m.name}
+                      </Text>
+                      {archived && <Text style={styles.archivedTag}>archived</Text>}
+                    </View>
                   </Pressable>
-                  {mode !== 'equal' ? (
-                    <TextInput
+                  {mode !== 'equal' && !archived ? (
+                    <TextField
                       placeholder={mode === 'percent' ? '%' : mode === 'shares' ? 'shares' : '₹'}
-                      placeholderTextColor={C.faint}
-                      value={values[m!.id] ?? ''}
-                      onChangeText={(t) => setValues((p) => ({ ...p, [m!.id]: t.replace(/[^0-9.]/g, '') }))}
-                      style={styles.valueInput}
+                      value={values[m.id] ?? ''}
+                      onChangeText={(t) => setValues((p) => ({ ...p, [m.id]: t.replace(/[^0-9.]/g, '') }))}
                       keyboardType="decimal-pad"
+                      style={styles.valueInput}
                     />
                   ) : (
-                    <Text style={[styles.splitAmt, !inc && styles.dimmed]}>
-                      {inc && split ? inr(split.amount) : '—'}
-                    </Text>
+                    <Amount size={15} color={!inc || archived ? C.faint : C.greenStrong}>
+                      {split && (inc || archived) ? inr(split.amount) : '—'}
+                    </Amount>
                   )}
                 </View>
-                {mode !== 'equal' && (
-                  <Text style={styles.perPerson}>
-                    {split ? `pays ${inr(split.amount)}` : ' '}
-                  </Text>
+                {mode !== 'equal' && !archived && split && (
+                  <Text style={styles.perPerson}>owes {inr(split.amount)}</Text>
                 )}
               </View>
             );
           })}
-          {mode === 'exact' && !exactOk && (
-            <Text style={styles.warn}>Exact amounts must add up to {inr(amount)} (now {inr(exactSum)})</Text>
+          {(mode === 'percent' || mode === 'exact') && !modeOk && amount > 0 && (
+            <Text style={styles.warn}>
+              {mode === 'percent'
+                ? `Percentages must total 100% (now ${shareInputs.reduce((a, s) => a + s.value, 0)}%)`
+                : `Exact amounts must add up to ${inr(amount)} (now ${inr(splitSum)})`}
+            </Text>
           )}
         </Card>
 
-        <Pressable onPress={() => setRecurring((r) => !r)} style={styles.recRow}>
-          <View>
-            <Text style={styles.recTitle}>↻ Recurring monthly</Text>
-            <Text style={styles.recSub}>Rent, WiFi, mess bills…</Text>
-          </View>
-          <View style={[styles.toggle, recurring && styles.toggleOn]}>
-            <View style={[styles.knob, recurring && styles.knobOn]} />
-          </View>
-        </Pressable>
+        <Field label="Note (optional)">
+          <TextField placeholder="Anything worth remembering…" value={note} onChangeText={setNote} multiline />
+        </Field>
 
-        <Btn label={amount > 0 ? `Add · ${inr(amount)}` : 'Add expense'} onPress={save} disabled={!valid} />
+        <View style={styles.summary}>
+          <Text style={styles.summaryTxt}>
+            <Text style={styles.summaryName}>{payer?.isSelf ? 'You' : payer?.name}</Text>
+            {' paid '}
+            <Text style={styles.summaryAmt}>{inr(amount)}</Text>
+            {splits.length > 0 && ` · ${splits.length} participant${splits.length > 1 ? 's' : ''}`}
+          </Text>
+        </View>
+
+        <Btn label={initial ? 'Save changes' : amount > 0 ? `Add · ${inr(amount)}` : 'Add expense'} onPress={save} disabled={!valid} />
       </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  label: { color: C.muted, fontSize: 13, fontWeight: '700', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.6 },
-  input: {
-    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.line, borderRadius: R.md,
-    paddingVertical: 13, paddingHorizontal: S.md, color: C.text, fontSize: 16,
+  loading: { fontFamily: F.regular, color: C.muted, marginTop: 40, textAlign: 'center' },
+  label: {
+    fontFamily: F.semi, color: C.muted, fontSize: 12,
+    marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.7,
   },
-  amountWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface2, borderWidth: 1, borderColor: C.line, borderRadius: R.md, paddingHorizontal: S.md },
-  rupee: { color: C.brand, fontSize: 24, fontWeight: '800', marginRight: 4 },
-  amountInput: { flex: 1, color: C.text, fontSize: 28, fontWeight: '800', paddingVertical: 10, letterSpacing: -0.5 },
-  chip: { borderWidth: 1, borderColor: C.line, backgroundColor: C.surface, borderRadius: 999, paddingVertical: 9, paddingHorizontal: 16 },
-  chipActive: { backgroundColor: C.brand, borderColor: C.brand },
-  chipTxt: { color: C.muted, fontWeight: '700', fontSize: 14 },
-  chipTxtActive: { color: C.brandInk },
-  payer: { alignItems: 'center', gap: 6, padding: 10, borderRadius: R.md, borderWidth: 1, borderColor: 'transparent', width: 76 },
-  payerActive: { borderColor: C.brand, backgroundColor: C.brandDim },
-  payerTxt: { color: C.muted, fontSize: 12, fontWeight: '700' },
+  twoCol: { flexDirection: 'row', gap: S.md },
+  amountWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.lineStrong,
+    borderRadius: R.md, paddingHorizontal: S.md,
+  },
+  rupee: { fontFamily: F.extra, color: C.greenStrong, fontSize: 20, marginRight: 2 },
+  amountInput: { borderWidth: 0, flex: 1, fontFamily: F.extra, fontSize: 22, paddingVertical: 10 },
+  dateBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.lineStrong,
+    borderRadius: R.md, paddingVertical: 13, paddingHorizontal: S.md,
+  },
+  dateTxt: { fontFamily: F.medium, color: C.text, fontSize: 14 },
+  chip: {
+    borderWidth: 1, borderColor: C.lineStrong, backgroundColor: C.surface,
+    borderRadius: 999, paddingVertical: 9, paddingHorizontal: 16,
+  },
+  chipActive: { backgroundColor: C.green, borderColor: C.green },
+  chipTxt: { fontFamily: F.semi, color: C.muted, fontSize: 14 },
+  chipTxtActive: { color: C.white },
+  payer: {
+    alignItems: 'center', gap: 6, padding: 10, width: 78,
+    borderRadius: R.md, borderWidth: 1.5, borderColor: 'transparent',
+  },
+  payerActive: { borderColor: C.green, backgroundColor: C.greenDim },
+  payerTxt: { fontFamily: F.semi, color: C.muted, fontSize: 12 },
   payerTxtActive: { color: C.text },
-  hint: { color: C.faint, fontSize: 13, marginTop: 8 },
-  memberRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 },
+  hint: { fontFamily: F.regular, color: C.faint, fontSize: 12, marginTop: 8, lineHeight: 17 },
+  memberBlock: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.line },
+  memberRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   memberLeft: { flexDirection: 'row', alignItems: 'center', gap: S.sm, flex: 1 },
-  check: { width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, borderColor: C.faint, alignItems: 'center', justifyContent: 'center' },
-  checkOn: { backgroundColor: C.brand, borderColor: C.brand },
-  checkTxt: { color: C.brandInk, fontWeight: '800', fontSize: 14 },
-  memberName: { color: C.text, fontSize: 15, fontWeight: '600' },
-  dimmed: { opacity: 0.35 },
-  splitAmt: { color: C.brand, fontSize: 15, fontWeight: '800' },
-  valueInput: {
-    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.line, borderRadius: R.sm,
-    paddingVertical: 8, paddingHorizontal: 12, color: C.text, fontSize: 15, minWidth: 86, textAlign: 'right',
+  check: {
+    width: 24, height: 24, borderRadius: 12,
+    borderWidth: 1.5, borderColor: C.lineStrong,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface,
   },
-  perPerson: { color: C.faint, fontSize: 12, textAlign: 'right', marginTop: -6, marginBottom: 4 },
-  warn: { color: C.down, fontSize: 13, fontWeight: '600', marginTop: 8 },
-  recRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, borderRadius: R.lg, padding: S.md },
-  recTitle: { color: C.text, fontSize: 15, fontWeight: '700' },
-  recSub: { color: C.muted, fontSize: 13, marginTop: 2 },
-  toggle: { width: 50, height: 30, borderRadius: 15, backgroundColor: C.surface3, justifyContent: 'center', paddingHorizontal: 3 },
-  toggleOn: { backgroundColor: C.brand },
-  knob: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#fff' },
-  knobOn: { alignSelf: 'flex-end' },
+  checkOn: { backgroundColor: C.green, borderColor: C.green },
+  memberName: { fontFamily: F.semi, color: C.text, fontSize: 15 },
+  archivedTag: { fontFamily: F.medium, color: C.faint, fontSize: 11 },
+  dimmed: { opacity: 0.4 },
+  valueInput: { minWidth: 92, textAlign: 'right', paddingVertical: 9 },
+  perPerson: { fontFamily: F.regular, color: C.faint, fontSize: 12, textAlign: 'right', marginTop: 2 },
+  warn: { fontFamily: F.semi, color: C.red, fontSize: 13, marginTop: 8 },
+  summary: {
+    backgroundColor: C.greenDim, borderRadius: R.md,
+    padding: S.md, alignItems: 'center',
+  },
+  summaryTxt: { fontFamily: F.regular, color: C.muted, fontSize: 14 },
+  summaryName: { fontFamily: F.bold, color: C.text },
+  summaryAmt: { fontFamily: F.extra, color: C.greenStrong },
 });

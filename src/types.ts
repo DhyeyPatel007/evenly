@@ -7,8 +7,14 @@ export type SplitMode = 'equal' | 'shares' | 'percent' | 'exact';
 export interface Member {
   id: string;
   name: string;
+  email?: string;
   upi?: string;
-  color: string;
+  /** index into AVATARS palette */
+  colorIdx: number;
+  /** the person using the app */
+  isSelf?: boolean;
+  /** false = archived: hidden from pickers, history preserved */
+  active: boolean;
 }
 
 export interface ExpenseSplit {
@@ -26,31 +32,39 @@ export interface Expense {
   date: string; // ISO yyyy-mm-dd
   splitMode: SplitMode;
   splits: ExpenseSplit[];
-  recurring?: 'monthly';
+  note?: string;
 }
 
 export interface Group {
   id: string;
   name: string;
   memberIds: string[];
-  createdAt: string;
+  archived: boolean;
+  createdAt: string; // ISO yyyy-mm-dd
 }
 
 export interface HisabState {
+  onboarded: boolean;
   members: Member[];
   groups: Group[];
   expenses: Expense[];
 }
 
-export const CATEGORIES: Record<Category, { color: string }> = {
-  Food: { color: '#FBBF24' },
-  Groceries: { color: '#3DDC97' },
-  Transport: { color: '#7DD3FC' },
-  Bills: { color: '#A78BFA' },
-  Fun: { color: '#F9A8D4' },
-  Home: { color: '#FDBA74' },
-  Trip: { color: '#6EE7B7' },
-  Other: { color: '#8E99AD' },
+export interface MemberInput {
+  name: string;
+  email?: string;
+  upi?: string;
+}
+
+export const CATEGORIES: Record<Category, { color: string; bg: string }> = {
+  Food: { color: '#B45309', bg: '#FDF0DC' },
+  Groceries: { color: '#15803D', bg: '#E5F4EA' },
+  Transport: { color: '#1D4ED8', bg: '#DBEAFE' },
+  Bills: { color: '#6D28D9', bg: '#EDE9FE' },
+  Fun: { color: '#BE185D', bg: '#FCE7F3' },
+  Home: { color: '#0F766E', bg: '#CCFBF1' },
+  Trip: { color: '#4338CA', bg: '#E0E7FF' },
+  Other: { color: '#5B6875', bg: '#EDF0F4' },
 };
 
 export const CATEGORY_LIST = Object.keys(CATEGORIES) as Category[];

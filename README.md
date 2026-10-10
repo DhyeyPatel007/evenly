@@ -1,7 +1,8 @@
 # Hisab — the smart Splitwise
 
-A demo expense-splitting app built with React Native + Expo (SDK 57). One codebase,
-runs on iOS and Android. 100% free tooling, no backend, data stays on-device.
+A production-quality expense-splitting app built with React Native + Expo (SDK 57).
+One codebase, runs on iOS and Android. 100% free tooling, no backend, no account —
+your data stays on your device.
 
 ## Run it on your phone
 
@@ -14,23 +15,36 @@ runs on iOS and Android. 100% free tooling, no backend, data stays on-device.
    npm install
    npx expo start
    ```
-4. Scan the QR code with Expo Go (phone and computer on the same Wi-Fi)
+4. Open the **Expo Go app** → **Scan QR code** → point at the terminal QR
+   (phone and computer on the same Wi-Fi; or use `npx expo start --tunnel`)
 
-The app opens with demo data (Room 204 + Goa Trip) so it looks alive immediately.
-Tap ↺ on the home screen to reset the demo.
+First launch asks for your name — then it's a blank slate. Use
+**Explore with demo data** from the empty state to see it alive, or
+build your own groups from scratch.
 
 ## What's inside
 
-- **Home** — live balance hero, group cards with per-group nets
-- **Group detail** — Activity / Balances / Insights tabs
-- **Add expense** — equal, shares, percentage and exact splits, categories,
-  paid-by picker, recurring monthly flag, paise-perfect rounding
+- **Onboarding** — no account, just your name; everything stored locally
+- **Dashboard** — net balance, you-owe / owed-to-you, recent activity, groups
+- **Groups** — create with your own members, rename, archive, safe delete
+- **Members** — add (name + optional email/UPI), edit, remove; members with
+  expense history are *archived* instead of deleted so records stay intact
+- **Expenses** — description, amount, category, date picker, paid-by, notes;
+  equal / shares / percentage / exact splits with live per-person preview;
+  paise-perfect rounding; edit and delete anytime
 - **⚡ Smart settle-up** — min-cash-flow algorithm collapses every debt into the
-  fewest possible payments; pay via UPI deep link or mark paid
+  fewest possible payments; pay via UPI deep link or record as paid
 - **Insights** — hand-drawn SVG donut by category, who-paid-most bars, stats
 - **Persistence** — AsyncStorage, works fully offline
 
+## Design
+
+Light-first interface: neutral background, white surfaces, Inter type scale with
+tabular numerals for money, one green accent for primary/positive actions, red
+for debts. Ionicons throughout — no emoji icons.
+
 ## Tech
 
-Expo SDK 57 · Expo Router (file-based routing) · TypeScript · react-native-svg ·
-AsyncStorage · zero paid services
+Expo SDK 57 · Expo Router (file-based) · TypeScript · Inter via expo-font ·
+react-native-svg · AsyncStorage · @react-native-community/datetimepicker ·
+zero paid services

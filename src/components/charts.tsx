@@ -1,7 +1,8 @@
 import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import { C, S } from '../theme';
+import { C, F, S } from '../theme';
 import { inr } from '../format';
+import { Amount } from './ui';
 
 export interface DonutSeg {
   value: number;
@@ -9,7 +10,7 @@ export interface DonutSeg {
   label: string;
 }
 
-export function DonutChart({ segments, size = 168, thickness = 26 }: { segments: DonutSeg[]; size?: number; thickness?: number }) {
+export function DonutChart({ segments, size = 160, thickness = 24 }: { segments: DonutSeg[]; size?: number; thickness?: number }) {
   const total = segments.reduce((a, s) => a + s.value, 0);
   const r = (size - thickness) / 2;
   const circ = 2 * Math.PI * r;
@@ -34,7 +35,7 @@ export function DonutChart({ segments, size = 168, thickness = 26 }: { segments:
               stroke={s.color}
               strokeWidth={thickness}
               fill="none"
-              strokeDasharray={`${Math.max(frac * circ - 2, 1)} ${circ}`}
+              strokeDasharray={`${Math.max(frac * circ - 3, 1)} ${circ}`}
               rotation={rot}
               origin={`${size / 2}, ${size / 2}`}
             />
@@ -42,7 +43,7 @@ export function DonutChart({ segments, size = 168, thickness = 26 }: { segments:
         })}
       </Svg>
       <View style={styles.donutCenter}>
-        <Text style={styles.donutTotal}>{inr(total)}</Text>
+        <Amount size={20} weight={F.extra}>{inr(total)}</Amount>
         <Text style={styles.donutLabel}>total split</Text>
       </View>
     </View>
@@ -56,7 +57,7 @@ export function HBar({ label, value, max, color }: { label: string; value: numbe
       <View style={styles.barTrack}>
         <View style={[styles.barFill, { width: `${max > 0 ? (value / max) * 100 : 0}%`, backgroundColor: color }]} />
       </View>
-      <Text style={styles.barVal}>{inr(value)}</Text>
+      <Amount size={13} color={C.muted}>{inr(value)}</Amount>
     </View>
   );
 }
@@ -66,11 +67,9 @@ const styles = StyleSheet.create({
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     alignItems: 'center', justifyContent: 'center',
   },
-  donutTotal: { color: C.text, fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
-  donutLabel: { color: C.faint, fontSize: 12, fontWeight: '600', marginTop: 2 },
+  donutLabel: { color: C.faint, fontSize: 11, fontFamily: F.medium, marginTop: 2 },
   barRow: { flexDirection: 'row', alignItems: 'center', gap: S.sm, marginBottom: S.sm },
-  barLabel: { color: C.text, fontSize: 13, fontWeight: '700', width: 76 },
-  barTrack: { flex: 1, height: 10, borderRadius: 5, backgroundColor: C.surface2, overflow: 'hidden' },
-  barFill: { height: '100%', borderRadius: 5 },
-  barVal: { color: C.muted, fontSize: 13, fontWeight: '700', width: 64, textAlign: 'right' },
+  barLabel: { color: C.text, fontSize: 13, fontFamily: F.semi, width: 78 },
+  barTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: C.surface2, overflow: 'hidden' },
+  barFill: { height: '100%', borderRadius: 4 },
 });

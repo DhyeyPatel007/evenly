@@ -5,15 +5,16 @@ export function inr(n: number): string {
   return `₹${s}`;
 }
 
-export function inrSigned(n: number): string {
-  return n < 0 ? `-${inr(-n)}` : `+${inr(n)}`;
-}
-
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export function fmtDate(iso: string): string {
   const [, m, d] = iso.split('-').map(Number);
   return `${d} ${MONTHS[m - 1]}`;
+}
+
+export function fmtDateFull(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return `${d} ${MONTHS[m - 1]} ${y}`;
 }
 
 export function todayISO(): string {

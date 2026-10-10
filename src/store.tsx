@@ -1,36 +1,73 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Expense, Group, HisabState, Member } from './types';
-import { seedData } from './data';
-import { uid } from './format';
+import type { Expense, Group, HisabState, Member, MemberInput } from './types';
+import { demoData } from './data';
+import { todayISO, uid } from './format';
 
-const KEY = '@hisab/v1';
+const KEY = '@hisab/v2';
+
+export type MemberOp =
+  | { ok: true; id: string }
+  | { ok: false; error: string };
 
 interface Store {
   ready: boolean;
+  onboarded: boolean;
   members: Member[];
   groups: Group[];
   expenses: Expense[];
-  memberById: (id: string) => Member | undefined;
-  groupExpenses: (groupId: string) => Expense[];
-  addExpense: (e: Omit<Expense, 'id'>) => void;
-  deleteExpense: (id: string) => void;
-  addMember: (groupId: string, name: string, upi?: string, color?: string) => void;
-  addGroup: (name: string, memberIds: string[]) => string;
-  resetDemo: () => void;
+
+  self(): Member | undefined;
+  memberById(id: string): Member | undefined;
+  activeMembers(groupId: string): Member[];
+  groupExpenses(groupId: string): Expense[];
+  expenseById(id: string): Expense | undefined;
+
+  completeOnboarding(name: string): void;
+  addMember(groupId: string, input: MemberInput): MemberOp;
+  updateMember(id: string, patch: Partial<Pick<Member, 'name' | 'email' | 'upi'>>): MemberOp;
+  /** Returns 'removed' or 'archived' (archived when the member has expense history). */
+  removeMember(groupId: string, memberId: string): 'removed' | 'archived';
+  restoreMember(memberId: string): void;
+
+  addGroup(name: string, memberInputs: MemberInput[], includeMemberIds?: string[]): string;
+  renameGroup(id: string, name: string): void;
+  setGroupArchived(id: string, archived: boolean): void;
+  /** Only allowed when the group has no expenses. */
+  deleteGroup(id: string): boolean;
+
+  addExpense(e: Omit<Expense, 'id'>): string;
+  updateExpense(id: string, patch: Partial<Omit<Expense, 'id' | 'groupId'>>): void;
+  deleteExpense(id: string): void;
+
+  loadDemo(): void;
+  clearAll(): void;
 }
 
 const Ctx = createContext<Store | null>(null);
 
-const PALETTE = ['#C6F52E', '#7DD3FC', '#F9A8D4', '#FDBA74', '#A78BFA', '#6EE7B7', '#FCA5A5', '#93C5FD'];
+const norm = (s: string) => s.trim().toLowerCase();
 
 export function HisabProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<HisabState | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(KEY)
-      .then((raw) => setState(raw ? (JSON.parse(raw) as HisabState) : seedData()))
-      .catch(() => setState(seedData()));
+      .then((raw) => {
+        if (raw) {
+          // v1 states have no onboarded flag — treat existing data as onboarded
+          const parsed = JSON.parse(raw) as Partial<HisabState>;
+          setState({
+            onboarded: parsed.onboarded ?? true,
+            members: parsed.members ?? [],
+            groups: parsed.groups ?? [],
+            expenses: parsed.expenses ?? [],
+          });
+        } else {
+          setState({ onboarded: false, members: [], groups: [], expenses: [] });
+        }
+      })
+      .catch(() => setState({ onboarded: false, members: [], groups: [], expenses: [] }));
   }, []);
 
   useEffect(() => {
@@ -38,47 +75,199 @@ export function HisabProvider({ children }: { children: React.ReactNode }) {
   }, [state]);
 
   const value = useMemo<Store>(() => {
-    const s: HisabState = state ?? { members: [], groups: [], expenses: [] };
+    const s: HisabState = state ?? { onboarded: false, members: [], groups: [], expenses: [] };
     const byId = new Map(s.members.map((m) => [m.id, m]));
+    const selfMember = s.members.find((m) => m.isSelf);
+
+    const mutate = (fn: (prev: HisabState) => HisabState) =>
+      setState((prev) => (prev ? fn(prev) : prev));
+
     return {
       ready: state !== null,
+      onboarded: s.onboarded,
       members: s.members,
       groups: s.groups,
       expenses: s.expenses,
+
+      self: () => selfMember,
       memberById: (id) => byId.get(id),
+      activeMembers: (groupId) => {
+        const g = s.groups.find((x) => x.id === groupId);
+        if (!g) return [];
+        return g.memberIds.map((id) => byId.get(id)).filter((m): m is Member => !!m && m.active);
+      },
       groupExpenses: (groupId) =>
         s.expenses.filter((e) => e.groupId === groupId).sort((a, b) => (a.date < b.date ? 1 : -1)),
-      addExpense: (e) =>
-        setState((prev) => (prev ? { ...prev, expenses: [{ ...e, id: uid() }, ...prev.expenses] } : prev)),
-      deleteExpense: (id) =>
-        setState((prev) => (prev ? { ...prev, expenses: prev.expenses.filter((e) => e.id !== id) } : prev)),
-      addMember: (groupId, name, upi, color) =>
-        setState((prev) => {
-          if (!prev) return prev;
-          const m: Member = {
-            id: uid(),
-            name: name.trim(),
-            upi: upi?.trim() || undefined,
-            color: color ?? PALETTE[prev.members.length % PALETTE.length],
-          };
+      expenseById: (id) => s.expenses.find((e) => e.id === id),
+
+      completeOnboarding: (name) => {
+        const m: Member = {
+          id: uid(), name: name.trim(), colorIdx: 1, isSelf: true, active: true,
+        };
+        mutate((prev) => ({ ...prev, onboarded: true, members: [m, ...prev.members] }));
+      },
+
+      addMember: (groupId, input) => {
+        const name = input.name.trim();
+        if (!name) return { ok: false, error: 'Enter a name.' };
+        const group = s.groups.find((g) => g.id === groupId);
+        if (!group) return { ok: false, error: 'Group not found.' };
+        const dup = group.memberIds
+          .map((id) => byId.get(id))
+          .some((m) => m && norm(m.name) === norm(name));
+        if (dup) return { ok: false, error: `${name} is already in this group.` };
+        const m: Member = {
+          id: uid(),
+          name,
+          email: input.email?.trim() || undefined,
+          upi: input.upi?.trim() || undefined,
+          colorIdx: s.members.length % 8,
+          active: true,
+        };
+        mutate((prev) => ({
+          ...prev,
+          members: [...prev.members, m],
+          groups: prev.groups.map((g) =>
+            g.id === groupId ? { ...g, memberIds: [...g.memberIds, m.id] } : g,
+          ),
+        }));
+        return { ok: true, id: m.id };
+      },
+
+      updateMember: (id, patch) => {
+        const m = byId.get(id);
+        if (!m) return { ok: false, error: 'Member not found.' };
+        const name = patch.name?.trim();
+        if (name !== undefined && !name) return { ok: false, error: 'Name cannot be empty.' };
+        if (name !== undefined) {
+          const dup = s.members.some(
+            (x) => x.id !== id && x.active && norm(x.name) === norm(name),
+          );
+          if (dup) return { ok: false, error: 'Another member already has this name.' };
+        }
+        mutate((prev) => ({
+          ...prev,
+          members: prev.members.map((x) =>
+            x.id === id
+              ? {
+                  ...x,
+                  name: name ?? x.name,
+                  email: patch.email !== undefined ? patch.email.trim() || undefined : x.email,
+                  upi: patch.upi !== undefined ? patch.upi.trim() || undefined : x.upi,
+                }
+              : x,
+          ),
+        }));
+        return { ok: true, id };
+      },
+
+      removeMember: (groupId, memberId) => {
+        const hasHistory = s.expenses.some(
+          (e) =>
+            e.groupId === groupId &&
+            (e.paidBy === memberId || e.splits.some((sp) => sp.memberId === memberId)),
+        );
+        if (hasHistory) {
+          // Archive: history stays intact, member leaves pickers.
+          mutate((prev) => ({
+            ...prev,
+            members: prev.members.map((m) => (m.id === memberId ? { ...m, active: false } : m)),
+          }));
+          return 'archived';
+        }
+        mutate((prev) => {
+          const groups = prev.groups.map((g) =>
+            g.id === groupId ? { ...g, memberIds: g.memberIds.filter((x) => x !== memberId) } : g,
+          );
+          const stillUsed = groups.some((g) => g.memberIds.includes(memberId));
           return {
             ...prev,
-            members: [...prev.members, m],
-            groups: prev.groups.map((g) =>
-              g.id === groupId ? { ...g, memberIds: [...g.memberIds, m.id] } : g,
-            ),
+            groups,
+            members: stillUsed ? prev.members : prev.members.filter((m) => m.id !== memberId),
           };
-        }),
-      addGroup: (name, memberIds) => {
+        });
+        return 'removed';
+      },
+
+      restoreMember: (memberId) =>
+        mutate((prev) => ({
+          ...prev,
+          members: prev.members.map((m) => (m.id === memberId ? { ...m, active: true } : m)),
+        })),
+
+      addGroup: (name, memberInputs, includeMemberIds = []) => {
         const id = uid();
-        setState((prev) =>
-          prev
-            ? { ...prev, groups: [...prev.groups, { id, name: name.trim(), memberIds, createdAt: new Date().toISOString().slice(0, 10) }] }
-            : prev,
-        );
+        const base = s.members.length;
+        const newMembers: Member[] = memberInputs.map((inp, i) => ({
+          id: uid() + i,
+          name: inp.name.trim(),
+          email: inp.email?.trim() || undefined,
+          upi: inp.upi?.trim() || undefined,
+          colorIdx: (base + i) % 8,
+          active: true,
+        }));
+        const g: Group = {
+          id,
+          name: name.trim(),
+          memberIds: [...includeMemberIds, ...newMembers.map((m) => m.id)],
+          archived: false,
+          createdAt: todayISO(),
+        };
+        mutate((prev) => ({
+          ...prev,
+          members: [...prev.members, ...newMembers],
+          groups: [...prev.groups, g],
+        }));
         return id;
       },
-      resetDemo: () => setState(seedData()),
+
+      renameGroup: (id, name) =>
+        mutate((prev) => ({
+          ...prev,
+          groups: prev.groups.map((g) => (g.id === id ? { ...g, name: name.trim() } : g)),
+        })),
+
+      setGroupArchived: (id, archived) =>
+        mutate((prev) => ({
+          ...prev,
+          groups: prev.groups.map((g) => (g.id === id ? { ...g, archived } : g)),
+        })),
+
+      deleteGroup: (id) => {
+        const hasExpenses = s.expenses.some((e) => e.groupId === id);
+        if (hasExpenses) return false;
+        mutate((prev) => {
+          const group = prev.groups.find((g) => g.id === id);
+          const groups = prev.groups.filter((g) => g.id !== id);
+          const orphans = (group?.memberIds ?? []).filter(
+            (mid) => !groups.some((g) => g.memberIds.includes(mid)),
+          );
+          return {
+            ...prev,
+            groups,
+            members: prev.members.filter((m) => m.isSelf || !orphans.includes(m.id)),
+          };
+        });
+        return true;
+      },
+
+      addExpense: (e) => {
+        const id = uid();
+        mutate((prev) => ({ ...prev, expenses: [{ ...e, id }, ...prev.expenses] }));
+        return id;
+      },
+
+      updateExpense: (id, patch) =>
+        mutate((prev) => ({
+          ...prev,
+          expenses: prev.expenses.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+        })),
+
+      deleteExpense: (id) =>
+        mutate((prev) => ({ ...prev, expenses: prev.expenses.filter((e) => e.id !== id) })),
+
+      loadDemo: () => setState({ ...demoData(), onboarded: true }),
+      clearAll: () => setState({ onboarded: false, members: [], groups: [], expenses: [] }),
     };
   }, [state]);
 

@@ -1,31 +1,31 @@
 import { useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useHisab } from '@/store';
 import { computeNets } from '@/settle';
 import { fmtDate, inr } from '@/format';
-import { C, R, S } from '@/theme';
+import { C, F, R, S } from '@/theme';
 import { Avatar } from '@/components/Avatar';
-import { Btn, Card, Empty, Header, Screen, Seg } from '@/components/ui';
+import { Amount, Btn, Card, Empty, Field, Header, Screen, Seg, TextField } from '@/components/ui';
 import { DonutChart, HBar } from '@/components/charts';
-import { CATEGORIES, type Category, type Expense } from '@/types';
+import { CATEGORIES, type Category } from '@/types';
 
 type Tab = 'activity' | 'balances' | 'insights';
 
 export default function GroupDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { ready, groups, groupExpenses, memberById, deleteExpense, addMember } = useHisab();
+  const {
+    ready, groups, groupExpenses, memberById, activeMembers,
+    deleteExpense, renameGroup, setGroupArchived, deleteGroup,
+  } = useHisab();
   const [tab, setTab] = useState<Tab>('activity');
-  const [showAddMember, setShowAddMember] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newUpi, setNewUpi] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editName, setEditName] = useState('');
 
   const group = groups.find((g) => g.id === id);
   const expenses = useMemo(() => (id ? groupExpenses(id) : []), [id, groupExpenses]);
-  const gMembers = useMemo(
-    () => (group ? group.memberIds.map((m) => memberById(m)).filter((m) => m !== undefined) : []),
-    [group, memberById],
-  );
+  const members = useMemo(() => (id ? activeMembers(id) : []), [id, activeMembers]);
   const nets = useMemo(() => computeNets(expenses), [expenses]);
 
   const catTotals = useMemo(() => {
@@ -37,43 +37,89 @@ export default function GroupDetail() {
   const paidTotals = useMemo(() => {
     const t = new Map<string, number>();
     for (const e of expenses) t.set(e.paidBy, (t.get(e.paidBy) ?? 0) + e.amount);
-    return gMembers
-      .map((m) => ({ id: m!.id, name: m!.name, color: m!.color, value: t.get(m!.id) ?? 0 }))
+    return members
+      .map((m) => ({ id: m.id, name: m.name, value: t.get(m.id) ?? 0, colorIdx: m.colorIdx }))
       .sort((a, b) => b.value - a.value);
-  }, [expenses, gMembers]);
+  }, [expenses, members]);
 
   if (!ready) return <Screen><Text style={styles.loading}>Loading…</Text></Screen>;
   if (!group) {
     return (
       <Screen>
         <Header title="Not found" onBack />
-        <Empty title="Group not found" subtitle="It may have been deleted." />
+        <Empty
+          icon={<Ionicons name="alert-circle-outline" size={28} color={C.muted} />}
+          title="Group not found"
+          subtitle="It may have been deleted."
+        />
       </Screen>
     );
   }
 
-  const myShare = (expenseId: string) => expenses.find((e) => e.id === expenseId)?.splits.find((s) => s.memberId === 'u1')?.amount ?? 0;
+  const total = expenses.reduce((a, e) => a + e.amount, 0);
+  const me = members.find((m) => m.isSelf);
+  const myNet = me ? nets[me.id] ?? 0 : 0;
+  const biggest = expenses.reduce<typeof expenses[number] | undefined>(
+    (a, e) => (e.amount > (a?.amount ?? 0) ? e : a), undefined,
+  );
 
-  const confirmDelete = (expenseId: string, desc: string) =>
-    Alert.alert('Delete expense?', `"${desc}" will be removed.`, [
+  const confirmDeleteExpense = (expenseId: string, desc: string) =>
+    Alert.alert('Delete expense?', `"${desc}" will be removed permanently.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => deleteExpense(expenseId) },
     ]);
 
-  const submitMember = () => {
-    if (!newName.trim()) return;
-    addMember(group.id, newName.trim(), newUpi.trim() || undefined);
-    setNewName('');
-    setNewUpi('');
-    setShowAddMember(false);
+  const openSettings = () => {
+    setEditName(group.name);
+    setSettingsOpen(true);
   };
 
-  const total = expenses.reduce((a, e) => a + e.amount, 0);
-  const biggest = expenses.reduce<Expense | undefined>((a, e) => (e.amount > (a?.amount ?? 0) ? e : a), undefined);
+  const saveName = () => {
+    if (editName.trim()) renameGroup(group.id, editName.trim());
+    setSettingsOpen(false);
+  };
+
+  const confirmDeleteGroup = () =>
+    Alert.alert('Delete group?', `"${group.name}" has no expenses and will be deleted permanently.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          if (deleteGroup(group.id)) router.replace('/');
+          else Alert.alert('Cannot delete', 'Groups with expenses can only be archived.');
+        },
+      },
+    ]);
 
   return (
     <Screen>
-      <Header title={group.name} subtitle={`${gMembers.length} members · ${inr(total)} split`} onBack />
+      <Header
+        title={group.name}
+        subtitle={`${members.length} members · ${inr(total)} split`}
+        onBack
+        right={
+          <View style={styles.headerActions}>
+            <Pressable onPress={() => router.push(`/group/${group.id}/members`)} style={styles.iconBtn} hitSlop={8}>
+              <Ionicons name="people-outline" size={20} color={C.muted} />
+            </Pressable>
+            <Pressable onPress={openSettings} style={styles.iconBtn} hitSlop={8}>
+              <Ionicons name="settings-outline" size={20} color={C.muted} />
+            </Pressable>
+          </View>
+        }
+      />
+
+      {group.archived && (
+        <Card style={styles.archivedBanner}>
+          <Ionicons name="archive-outline" size={18} color={C.amber} />
+          <Text style={styles.archivedTxt}>This group is archived — read only.</Text>
+          <Pressable onPress={() => setGroupArchived(group.id, false)}>
+            <Text style={styles.unarchiveTxt}>Unarchive</Text>
+          </Pressable>
+        </Card>
+      )}
+
       <Seg<Tab>
         value={tab}
         onChange={setTab}
@@ -87,7 +133,14 @@ export default function GroupDetail() {
 
       {tab === 'activity' && (
         expenses.length === 0 ? (
-          <Empty title="No expenses yet" subtitle="Tap + to add the first one." />
+          <Empty
+            icon={<Ionicons name="receipt-outline" size={28} color={C.muted} />}
+            title="No expenses yet"
+            subtitle="Add the first expense and Hisab will track who owes whom."
+            action={!group.archived ? (
+              <Btn label="Add expense" onPress={() => router.push(`/group/${group.id}/add`)} />
+            ) : undefined}
+          />
         ) : (
           <FlatList
             data={expenses}
@@ -95,20 +148,24 @@ export default function GroupDetail() {
             contentContainerStyle={{ gap: S.sm, paddingBottom: 110 }}
             renderItem={({ item: e }) => {
               const payer = memberById(e.paidBy);
-              const share = myShare(e.id);
+              const share = me ? e.splits.find((s) => s.memberId === me.id)?.amount ?? 0 : 0;
               return (
-                <Pressable onLongPress={() => confirmDelete(e.id, e.description)}>
+                <Pressable
+                  onPress={() => router.push(`/group/${group.id}/expense/${e.id}`)}
+                  onLongPress={() => !group.archived && confirmDeleteExpense(e.id, e.description)}
+                >
                   <Card style={styles.expRow}>
-                    <View style={[styles.catDot, { backgroundColor: CATEGORIES[e.category].color }]} />
+                    <View style={[styles.catDot, { backgroundColor: CATEGORIES[e.category].bg }]}>
+                      <View style={[styles.catDotInner, { backgroundColor: CATEGORIES[e.category].color }]} />
+                    </View>
                     <View style={styles.expMain}>
                       <Text style={styles.expDesc} numberOfLines={1}>{e.description}</Text>
                       <Text style={styles.expMeta}>
-                        {fmtDate(e.date)} · {payer?.name === 'Aarav Mehta' ? 'You' : payer?.name} paid
-                        {e.recurring ? ' · ↻ monthly' : ''}
+                        {fmtDate(e.date)} · {payer?.isSelf ? 'You' : payer?.name} paid
                       </Text>
                     </View>
                     <View style={styles.expRight}>
-                      <Text style={styles.expAmt}>{inr(e.amount)}</Text>
+                      <Amount size={15}>{inr(e.amount)}</Amount>
                       <Text style={styles.expShare}>your share {inr(share)}</Text>
                     </View>
                   </Card>
@@ -121,59 +178,49 @@ export default function GroupDetail() {
 
       {tab === 'balances' && (
         <FlatList
-          data={gMembers}
-          keyExtractor={(m) => m!.id}
+          data={members}
+          keyExtractor={(m) => m.id}
           contentContainerStyle={{ gap: S.sm, paddingBottom: 110 }}
           ListHeaderComponent={
             <Card style={styles.settleCard}>
-              <Text style={styles.settleTitle}>⚡ Smart settle-up</Text>
-              <Text style={styles.settleSub}>Hisab collapses every debt into the fewest possible payments.</Text>
+              <View style={styles.settleHead}>
+                <Ionicons name="flash" size={20} color={C.greenStrong} />
+                <Text style={styles.settleTitle}>Smart settle-up</Text>
+              </View>
+              <Text style={styles.settleSub}>
+                Hisab collapses every debt into the fewest possible payments.
+              </Text>
               <View style={{ height: S.sm }} />
-              <Btn label="See settle-up plan" onPress={() => router.push(`/group/${group.id}/settle`)} />
+              <Btn
+                label="See settle-up plan"
+                onPress={() => router.push(`/group/${group.id}/settle`)}
+                disabled={group.archived}
+              />
             </Card>
           }
           renderItem={({ item: m }) => {
-            const net = nets[m!.id] ?? 0;
+            const net = nets[m.id] ?? 0;
             return (
               <Card style={styles.balRow}>
-                <Avatar name={m!.name} color={m!.color} size={44} />
+                <Avatar name={m.name} colorIdx={m.colorIdx} size={42} />
                 <View style={styles.balMain}>
-                  <Text style={styles.balName}>{m!.name === 'Aarav Mehta' ? 'You' : m!.name}</Text>
+                  <Text style={styles.balName}>
+                    {m.isSelf ? 'You' : m.name}
+                  </Text>
                   <Text style={styles.balMeta}>
                     {net === 0 ? 'all settled' : net > 0 ? 'gets back' : 'owes'}
                   </Text>
                 </View>
-                {net !== 0 && (
-                  <Text style={[styles.balAmt, { color: net > 0 ? C.up : C.down }]}>
+                {net !== 0 ? (
+                  <Amount size={16} color={net > 0 ? C.greenStrong : C.red}>
                     {inr(Math.abs(net))}
-                  </Text>
+                  </Amount>
+                ) : (
+                  <Ionicons name="checkmark-circle" size={22} color={C.green} />
                 )}
-                {net === 0 && <Text style={styles.balSettled}>✓</Text>}
               </Card>
             );
           }}
-          ListFooterComponent={
-            <View>
-              {showAddMember ? (
-                <Card style={{ gap: S.sm, marginTop: S.sm }}>
-                  <TextInput
-                    placeholder="Name" placeholderTextColor={C.faint} value={newName} onChangeText={setNewName}
-                    style={styles.input} />
-                  <TextInput
-                    placeholder="UPI ID (optional)" placeholderTextColor={C.faint} value={newUpi} onChangeText={setNewUpi}
-                    style={styles.input} autoCapitalize="none" />
-                  <View style={{ flexDirection: 'row', gap: S.sm }}>
-                    <View style={{ flex: 1 }}><Btn label="Add" onPress={submitMember} disabled={!newName.trim()} /></View>
-                    <View style={{ flex: 1 }}><Btn label="Cancel" variant="ghost" onPress={() => setShowAddMember(false)} /></View>
-                  </View>
-                </Card>
-              ) : (
-                <Pressable onPress={() => setShowAddMember(true)} style={styles.addMember}>
-                  <Text style={styles.addMemberTxt}>+ Add member</Text>
-                </Pressable>
-              )}
-            </View>
-          }
         />
       )}
 
@@ -184,7 +231,7 @@ export default function GroupDetail() {
           contentContainerStyle={{ paddingBottom: 110, gap: S.md }}
           ListHeaderComponent={
             <View style={{ gap: S.md }}>
-              <Card style={styles.insightCard}>
+              <Card>
                 <Text style={styles.insightTitle}>Spending by category</Text>
                 <View style={{ height: S.sm }} />
                 {catTotals.length === 0 ? (
@@ -197,27 +244,37 @@ export default function GroupDetail() {
                         <View key={c.label} style={styles.legendRow}>
                           <View style={[styles.legendDot, { backgroundColor: c.color }]} />
                           <Text style={styles.legendLabel}>{c.label}</Text>
-                          <Text style={styles.legendVal}>{inr(c.value)}</Text>
+                          <Amount size={13} color={C.muted}>{inr(c.value)}</Amount>
                         </View>
                       ))}
                     </View>
                   </View>
                 )}
               </Card>
-              <Card style={styles.insightCard}>
+              <Card>
                 <Text style={styles.insightTitle}>Who paid the most</Text>
                 <View style={{ height: S.sm }} />
-                {paidTotals.map((p) => (
-                  <HBar key={p.id} label={p.name.split(' ')[0]} value={p.value} max={paidTotals[0]?.value ?? 1} color={p.color} />
-                ))}
+                {paidTotals.length === 0 ? (
+                  <Text style={styles.muted}>No data yet.</Text>
+                ) : (
+                  paidTotals.map((p) => (
+                    <HBar
+                      key={p.id}
+                      label={p.name.split(' ')[0]}
+                      value={p.value}
+                      max={paidTotals[0]?.value ?? 1}
+                      color={['#16A34A', '#1D4ED8', '#6D28D9', '#B45309', '#BE185D', '#0F766E', '#B91C1C', '#4338CA'][p.colorIdx % 8]}
+                    />
+                  ))
+                )}
               </Card>
               <View style={styles.statGrid}>
                 <Card style={styles.statCard}>
-                  <Text style={styles.statNum}>{expenses.length}</Text>
+                  <Amount size={20} weight={F.extra} color={C.greenStrong}>{expenses.length}</Amount>
                   <Text style={styles.statLbl}>expenses</Text>
                 </Card>
                 <Card style={styles.statCard}>
-                  <Text style={styles.statNum}>{inr(total / Math.max(expenses.length, 1))}</Text>
+                  <Amount size={20} weight={F.extra}>{inr(expenses.length ? total / expenses.length : 0)}</Amount>
                   <Text style={styles.statLbl}>avg expense</Text>
                 </Card>
               </View>
@@ -225,7 +282,14 @@ export default function GroupDetail() {
                 <Card>
                   <Text style={styles.insightTitle}>Biggest expense</Text>
                   <Text style={styles.bigDesc}>{biggest.description}</Text>
-                  <Text style={styles.bigAmt}>{inr(biggest.amount)}</Text>
+                  <Amount size={24} weight={F.extra}>{inr(biggest.amount)}</Amount>
+                </Card>
+              )}
+              {myNet !== 0 && (
+                <Card style={[styles.myNetCard, { backgroundColor: myNet > 0 ? C.greenDim : C.redDim }]}>
+                  <Text style={[styles.myNetTxt, { color: myNet > 0 ? C.greenStrong : C.red }]}>
+                    {myNet > 0 ? `You get back ${inr(myNet)} in this group` : `You owe ${inr(-myNet)} in this group`}
+                  </Text>
                 </Card>
               )}
             </View>
@@ -233,57 +297,101 @@ export default function GroupDetail() {
         />
       )}
 
-      <Pressable style={styles.fab} onPress={() => router.push(`/group/${group.id}/add`)}>
-        <Text style={styles.fabTxt}>+</Text>
-      </Pressable>
+      {!group.archived && (
+        <Pressable style={styles.fab} onPress={() => router.push(`/group/${group.id}/add`)}>
+          <Ionicons name="add" size={30} color={C.white} />
+        </Pressable>
+      )}
+
+      <Modal visible={settingsOpen} transparent animationType="fade" onRequestClose={() => setSettingsOpen(false)}>
+        <Pressable style={styles.sheetBg} onPress={() => setSettingsOpen(false)}>
+          <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.sheetTitle}>Group settings</Text>
+            <Field label="Group name">
+              <TextField value={editName} onChangeText={setEditName} />
+            </Field>
+            <Btn label="Save name" onPress={saveName} disabled={!editName.trim()} />
+            <View style={{ height: S.sm }} />
+            <Btn
+              label={group.archived ? 'Unarchive group' : 'Archive group'}
+              variant="secondary"
+              onPress={() => {
+                setGroupArchived(group.id, !group.archived);
+                setSettingsOpen(false);
+              }}
+            />
+            <View style={{ height: S.sm }} />
+            <Btn
+              label="Delete group"
+              variant="danger"
+              onPress={confirmDeleteGroup}
+              disabled={expenses.length > 0}
+            />
+            {expenses.length > 0 && (
+              <Text style={styles.deleteHint}>Groups with expenses can only be archived, not deleted.</Text>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  loading: { color: C.muted, marginTop: 40, textAlign: 'center' },
+  loading: { fontFamily: F.regular, color: C.muted, marginTop: 40, textAlign: 'center' },
+  headerActions: { flexDirection: 'row', gap: 4 },
+  iconBtn: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.line,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  archivedBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: S.sm,
+    backgroundColor: C.amberDim, borderColor: '#F5D9A8', marginBottom: S.md,
+  },
+  archivedTxt: { fontFamily: F.medium, color: C.amber, fontSize: 13, flex: 1 },
+  unarchiveTxt: { fontFamily: F.bold, color: C.amber, fontSize: 13 },
   expRow: { flexDirection: 'row', alignItems: 'center', gap: S.sm },
-  catDot: { width: 10, height: 10, borderRadius: 5 },
+  catDot: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  catDotInner: { width: 10, height: 10, borderRadius: 5 },
   expMain: { flex: 1 },
-  expDesc: { color: C.text, fontSize: 16, fontWeight: '700', marginBottom: 3 },
-  expMeta: { color: C.muted, fontSize: 13 },
+  expDesc: { fontFamily: F.semi, color: C.text, fontSize: 15, marginBottom: 2 },
+  expMeta: { fontFamily: F.regular, color: C.muted, fontSize: 12 },
   expRight: { alignItems: 'flex-end' },
-  expAmt: { color: C.text, fontSize: 16, fontWeight: '800' },
-  expShare: { color: C.faint, fontSize: 12, marginTop: 2 },
-  settleCard: { marginBottom: S.sm, backgroundColor: C.surface },
-  settleTitle: { color: C.text, fontSize: 17, fontWeight: '800', marginBottom: 4 },
-  settleSub: { color: C.muted, fontSize: 14, lineHeight: 20 },
+  expShare: { fontFamily: F.regular, color: C.faint, fontSize: 11, marginTop: 2 },
+  settleCard: { marginBottom: 2 },
+  settleHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  settleTitle: { fontFamily: F.bold, color: C.text, fontSize: 16 },
+  settleSub: { fontFamily: F.regular, color: C.muted, fontSize: 14, lineHeight: 20 },
   balRow: { flexDirection: 'row', alignItems: 'center', gap: S.md },
   balMain: { flex: 1 },
-  balName: { color: C.text, fontSize: 16, fontWeight: '700', marginBottom: 2 },
-  balMeta: { color: C.muted, fontSize: 13 },
-  balAmt: { fontSize: 17, fontWeight: '800' },
-  balSettled: { color: C.up, fontSize: 20, fontWeight: '800' },
-  addMember: { alignItems: 'center', paddingVertical: S.md, marginTop: S.sm },
-  addMemberTxt: { color: C.brand, fontWeight: '800', fontSize: 15 },
-  input: {
-    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.line, borderRadius: R.md,
-    paddingVertical: 13, paddingHorizontal: S.md, color: C.text, fontSize: 16,
-  },
-  insightCard: { gap: 2 },
-  insightTitle: { color: C.text, fontSize: 16, fontWeight: '800', marginBottom: 2 },
-  muted: { color: C.muted, fontSize: 14 },
+  balName: { fontFamily: F.semi, color: C.text, fontSize: 15, marginBottom: 2 },
+  balMeta: { fontFamily: F.regular, color: C.muted, fontSize: 12 },
+  insightTitle: { fontFamily: F.bold, color: C.text, fontSize: 15, marginBottom: 2 },
+  muted: { fontFamily: F.regular, color: C.muted, fontSize: 14 },
   donutWrap: { flexDirection: 'row', alignItems: 'center', gap: S.md },
   legend: { flex: 1, gap: 8 },
   legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   legendDot: { width: 10, height: 10, borderRadius: 5 },
-  legendLabel: { color: C.text, fontSize: 13, fontWeight: '600', flex: 1 },
-  legendVal: { color: C.muted, fontSize: 13, fontWeight: '700' },
+  legendLabel: { fontFamily: F.medium, color: C.text, fontSize: 13, flex: 1 },
   statGrid: { flexDirection: 'row', gap: S.md },
-  statCard: { flex: 1, alignItems: 'center', paddingVertical: S.lg },
-  statNum: { color: C.brand, fontSize: 22, fontWeight: '800', marginBottom: 4 },
-  statLbl: { color: C.muted, fontSize: 12, fontWeight: '600' },
-  bigDesc: { color: C.muted, fontSize: 14, marginTop: 4 },
-  bigAmt: { color: C.text, fontSize: 26, fontWeight: '800', marginTop: 2 },
+  statCard: { flex: 1, alignItems: 'center', paddingVertical: S.lg, gap: 4 },
+  statLbl: { fontFamily: F.medium, color: C.muted, fontSize: 12 },
+  bigDesc: { fontFamily: F.regular, color: C.muted, fontSize: 13, marginTop: 4, marginBottom: 2 },
+  myNetCard: { borderWidth: 0 },
+  myNetTxt: { fontFamily: F.bold, fontSize: 14, textAlign: 'center' },
   fab: {
-    position: 'absolute', right: S.md, bottom: S.xl + 10, width: 60, height: 60, borderRadius: 30,
-    backgroundColor: C.brand, alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 10, elevation: 6,
+    position: 'absolute', right: S.md, bottom: S.xl + 8,
+    width: 58, height: 58, borderRadius: 29, backgroundColor: C.green,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#0E1319', shadowOpacity: 0.22, shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 }, elevation: 5,
   },
-  fabTxt: { color: C.brandInk, fontSize: 32, fontWeight: '400', marginTop: -3 },
+  sheetBg: { flex: 1, backgroundColor: 'rgba(14,19,25,0.45)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: C.surface, borderTopLeftRadius: R.xl, borderTopRightRadius: R.xl,
+    padding: S.lg, paddingBottom: S.xl, gap: S.sm,
+  },
+  sheetTitle: { fontFamily: F.bold, fontSize: 17, color: C.text },
+  deleteHint: { fontFamily: F.regular, color: C.faint, fontSize: 12, textAlign: 'center' },
 });
