@@ -6,7 +6,7 @@
  * name + amount — the user just enters their UPI PIN to pay.
  *
  * Note: without a payment-gateway integration there is no callback,
- * so Hisab cannot auto-confirm. The payer taps "Mark paid" after
+ * so Evenly cannot auto-confirm. The payer taps "Mark paid" after
  * completing the payment in their UPI app.
  */
 
@@ -42,7 +42,7 @@ export function buildAppUpiUrl(
     vpa,
     payeeName,
     amount,
-    note = 'Hisab settle-up',
+    note = 'Evenly settle-up',
   }: {
     vpa: string;
     payeeName: string;
@@ -56,7 +56,7 @@ export function buildAppUpiUrl(
     am: amount.toFixed(2),
     cu: 'INR',
     tn: note,
-    tr: `hisab${Date.now()}`,
+    tr: `evenly${Date.now()}`,
   });
   return `${opt.scheme}://${opt.path}?${params.toString()}`;
 }

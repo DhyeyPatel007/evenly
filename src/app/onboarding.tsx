@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useHisab } from '@/store';
+import { useEvenly } from '@/store';
 import { C, F, S } from '@/theme';
 import { Btn, Field, Screen, TextField } from '@/components/ui';
 
 export default function Onboarding() {
-  const { ready, onboarded, completeOnboarding } = useHisab();
+  const { ready, onboarded, completeOnboarding } = useEvenly();
   const [name, setName] = useState('');
 
   useEffect(() => {
@@ -29,7 +29,7 @@ export default function Onboarding() {
         <View style={styles.mark}>
           <Ionicons name="calculator" size={34} color={C.white} />
         </View>
-        <Text style={styles.title}>Welcome to Hisab</Text>
+        <Text style={styles.title}>Welcome to Evenly</Text>
         <Text style={styles.sub}>
           Split bills with friends, roommates and travel buddies — and settle up in the fewest
           payments possible.

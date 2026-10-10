@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Expense, Group, HisabState, Member, MemberInput } from './types';
+import type { Expense, Group, EvenlyState, Member, MemberInput } from './types';
 import { demoData } from './data';
 import { todayISO, uid } from './format';
 
-const KEY = '@hisab/v2';
+const KEY = '@evenly/v2';
+const LEGACY_KEY = '@hisab/v2'; // renamed from Hisab — migrate once, then drop
 
 export type MemberOp =
   | { ok: true; id: string }
@@ -48,25 +49,26 @@ const Ctx = createContext<Store | null>(null);
 
 const norm = (s: string) => s.trim().toLowerCase();
 
-export function HisabProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<HisabState | null>(null);
+export function EvenlyProvider({ children }: { children: React.ReactNode }) {
+  const [state, setState] = useState<EvenlyState | null>(null);
 
   useEffect(() => {
+    const hydrate = (raw: string | null) => {
+      if (raw) {
+        // v1 states have no onboarded flag — treat existing data as onboarded
+        const parsed = JSON.parse(raw) as Partial<EvenlyState>;
+        setState({
+          onboarded: parsed.onboarded ?? true,
+          members: parsed.members ?? [],
+          groups: parsed.groups ?? [],
+          expenses: parsed.expenses ?? [],
+        });
+      } else {
+        setState({ onboarded: false, members: [], groups: [], expenses: [] });
+      }
+    };
     AsyncStorage.getItem(KEY)
-      .then((raw) => {
-        if (raw) {
-          // v1 states have no onboarded flag — treat existing data as onboarded
-          const parsed = JSON.parse(raw) as Partial<HisabState>;
-          setState({
-            onboarded: parsed.onboarded ?? true,
-            members: parsed.members ?? [],
-            groups: parsed.groups ?? [],
-            expenses: parsed.expenses ?? [],
-          });
-        } else {
-          setState({ onboarded: false, members: [], groups: [], expenses: [] });
-        }
-      })
+      .then((raw) => (raw ? hydrate(raw) : AsyncStorage.getItem(LEGACY_KEY).then(hydrate)))
       .catch(() => setState({ onboarded: false, members: [], groups: [], expenses: [] }));
   }, []);
 
@@ -75,11 +77,11 @@ export function HisabProvider({ children }: { children: React.ReactNode }) {
   }, [state]);
 
   const value = useMemo<Store>(() => {
-    const s: HisabState = state ?? { onboarded: false, members: [], groups: [], expenses: [] };
+    const s: EvenlyState = state ?? { onboarded: false, members: [], groups: [], expenses: [] };
     const byId = new Map(s.members.map((m) => [m.id, m]));
     const selfMember = s.members.find((m) => m.isSelf);
 
-    const mutate = (fn: (prev: HisabState) => HisabState) =>
+    const mutate = (fn: (prev: EvenlyState) => EvenlyState) =>
       setState((prev) => (prev ? fn(prev) : prev));
 
     return {
@@ -274,8 +276,8 @@ export function HisabProvider({ children }: { children: React.ReactNode }) {
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
-export function useHisab(): Store {
+export function useEvenly(): Store {
   const v = useContext(Ctx);
-  if (!v) throw new Error('useHisab must be used inside HisabProvider');
+  if (!v) throw new Error('useEvenly must be used inside EvenlyProvider');
   return v;
 }

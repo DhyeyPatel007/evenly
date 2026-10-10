@@ -2,13 +2,13 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useHisab } from '@/store';
+import { useEvenly } from '@/store';
 import { C, F, R, S } from '@/theme';
 import { Avatar } from '@/components/Avatar';
 import { Btn, Field, Header, Screen, TextField } from '@/components/ui';
 
 export default function NewGroup() {
-  const { self, addGroup } = useHisab();
+  const { self, addGroup } = useEvenly();
   const [name, setName] = useState('');
   const [rows, setRows] = useState<string[]>(['', '']);
 

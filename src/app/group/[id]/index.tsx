@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Alert, FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useHisab } from '@/store';
+import { useEvenly } from '@/store';
 import { computeNets } from '@/settle';
 import { fmtDate, inr } from '@/format';
 import { C, F, R, S } from '@/theme';
@@ -18,7 +18,7 @@ export default function GroupDetail() {
   const {
     ready, groups, groupExpenses, memberById, activeMembers,
     deleteExpense, renameGroup, setGroupArchived, deleteGroup,
-  } = useHisab();
+  } = useEvenly();
   const [tab, setTab] = useState<Tab>('activity');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editName, setEditName] = useState('');
@@ -136,7 +136,7 @@ export default function GroupDetail() {
           <Empty
             icon={<Ionicons name="receipt-outline" size={28} color={C.muted} />}
             title="No expenses yet"
-            subtitle="Add the first expense and Hisab will track who owes whom."
+            subtitle="Add the first expense and Evenly will track who owes whom."
             action={!group.archived ? (
               <Btn label="Add expense" onPress={() => router.push(`/group/${group.id}/add`)} />
             ) : undefined}
@@ -188,7 +188,7 @@ export default function GroupDetail() {
                 <Text style={styles.settleTitle}>Smart settle-up</Text>
               </View>
               <Text style={styles.settleSub}>
-                Hisab collapses every debt into the fewest possible payments.
+                Evenly collapses every debt into the fewest possible payments.
               </Text>
               <View style={{ height: S.sm }} />
               <Btn

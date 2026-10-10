@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useHisab } from '@/store';
+import { useEvenly } from '@/store';
 import { resolveSplits, type ShareInput } from '@/settle';
 import { fmtDateFull, inr, todayISO } from '@/format';
 import { C, F, R, S } from '@/theme';
@@ -30,7 +30,7 @@ function dateOf(iso: string): Date {
 
 export default function AddExpense() {
   const { id, edit } = useLocalSearchParams<{ id: string; edit?: string }>();
-  const { ready, groups, expenseById } = useHisab();
+  const { ready, groups, expenseById } = useEvenly();
   const group = groups.find((g) => g.id === id);
   const editing = edit ? expenseById(edit) : undefined;
 
@@ -49,7 +49,7 @@ function ExpenseForm({
   groupName: string;
   initial?: Expense;
 }) {
-  const { activeMembers, memberById, addExpense, updateExpense } = useHisab();
+  const { activeMembers, memberById, addExpense, updateExpense } = useEvenly();
 
   const baseMembers = activeMembers(groupId);
   // Keep archived members visible (read-only) if they're part of the expense being edited.

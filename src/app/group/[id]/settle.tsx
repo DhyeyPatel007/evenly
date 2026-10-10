@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Alert, FlatList, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useHisab } from '@/store';
+import { useEvenly } from '@/store';
 import { computeNets, simplifyDebts } from '@/settle';
 import { buildAppUpiUrl, UPI_APP_OPTIONS, type UpiAppOption } from '@/upi';
 import { inr, todayISO } from '@/format';
@@ -12,7 +12,7 @@ import { Amount, Btn, Card, Empty, Header, Screen } from '@/components/ui';
 
 export default function Settle() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { ready, groups, groupExpenses, memberById, addExpense } = useHisab();
+  const { ready, groups, groupExpenses, memberById, addExpense } = useEvenly();
   const group = groups.find((g) => g.id === id);
   const expenses = useMemo(() => (id ? groupExpenses(id) : []), [id, groupExpenses]);
   const nets = useMemo(() => computeNets(expenses), [expenses]);
@@ -48,7 +48,7 @@ export default function Settle() {
     }
   };
 
-  /** Both platforms get Hisab's own app picker — the per-app schemes work on iOS too. */
+  /** Both platforms get Evenly's own app picker — the per-app schemes work on iOS too. */
   const onPayPress = (toId: string, amount: number) => setChooser({ toId, amount });
 
   const markPaid = (fromId: string, toId: string, amount: number) => {

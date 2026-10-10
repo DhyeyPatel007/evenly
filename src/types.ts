@@ -43,7 +43,7 @@ export interface Group {
   createdAt: string; // ISO yyyy-mm-dd
 }
 
-export interface HisabState {
+export interface EvenlyState {
   onboarded: boolean;
   members: Member[];
   groups: Group[];

@@ -1,4 +1,4 @@
-# Hisab — the smart Splitwise
+# Evenly — the smart Splitwise
 
 A production-quality expense-splitting app built with React Native + Expo (SDK 57).
 One codebase, runs on iOS and Android. 100% free tooling, no backend, no account —
@@ -10,8 +10,8 @@ your data stays on your device.
 2. Install **Expo Go** (free) on your phone from the Play Store / App Store
 3. Clone and start:
    ```bash
-   git clone https://github.com/DhyeyPatel007/hisab.git
-   cd hisab
+   git clone https://github.com/DhyeyPatel007/evenly.git
+   cd evenly
    npm install
    npx expo start
    ```

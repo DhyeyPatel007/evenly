@@ -1,4 +1,4 @@
-// Hisab design tokens — light, premium, finance-app grade.
+// Evenly design tokens — light, premium, finance-app grade.
 // One accent (green), neutrals do the rest. Color always means something.
 
 export const C = {

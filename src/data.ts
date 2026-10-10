@@ -1,10 +1,10 @@
-import type { Expense, HisabState } from './types';
+import type { Expense, EvenlyState } from './types';
 
 /**
  * Clearly-labeled demo content. Never auto-loaded — the user opts in
  * from the empty state ("Explore with demo data").
  */
-export function demoData(): HisabState {
+export function demoData(): EvenlyState {
   const members = [
     { id: 'du1', name: 'Aarav Mehta', upi: 'aarav.mehta@okhdfc', colorIdx: 1, isSelf: true, active: true },
     { id: 'du2', name: 'Rohan Shah', upi: 'rohan.shah@okicici', colorIdx: 0, active: true },

@@ -11,7 +11,7 @@ import {
   Inter_700Bold,
   Inter_800ExtraBold,
 } from '@expo-google-fonts/inter';
-import { HisabProvider } from '../store';
+import { EvenlyProvider } from '../store';
 import { C } from '../theme';
 
 SplashScreen.preventAutoHideAsync();
@@ -33,7 +33,7 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <HisabProvider>
+      <EvenlyProvider>
         <StatusBar style="dark" />
         <Stack
           screenOptions={{
@@ -51,7 +51,7 @@ export default function RootLayout() {
           <Stack.Screen name="group/[id]/expense/[eid]" />
           <Stack.Screen name="group/[id]/settle" />
         </Stack>
-      </HisabProvider>
+      </EvenlyProvider>
     </SafeAreaProvider>
   );
 }

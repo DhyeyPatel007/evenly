@@ -1,7 +1,7 @@
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useHisab } from '@/store';
+import { useEvenly } from '@/store';
 import { fmtDateFull, inr } from '@/format';
 import { C, F, R, S } from '@/theme';
 import { Avatar } from '@/components/Avatar';
@@ -17,7 +17,7 @@ const MODE_LABEL: Record<SplitMode, string> = {
 
 export default function ExpenseDetail() {
   const { id, eid } = useLocalSearchParams<{ id: string; eid: string }>();
-  const { ready, groups, expenseById, memberById, deleteExpense } = useHisab();
+  const { ready, groups, expenseById, memberById, deleteExpense } = useEvenly();
 
   const group = groups.find((g) => g.id === id);
   const expense = eid ? expenseById(eid) : undefined;

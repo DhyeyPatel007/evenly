@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useHisab } from '@/store';
+import { useEvenly } from '@/store';
 import { isValidUpi } from '@/upi';
 import { C, F, R, S } from '@/theme';
 import { Avatar } from '@/components/Avatar';
@@ -13,7 +13,7 @@ export default function Members() {
   const {
     ready, groups, memberById, groupExpenses,
     addMember, updateMember, removeMember, restoreMember,
-  } = useHisab();
+  } = useEvenly();
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);

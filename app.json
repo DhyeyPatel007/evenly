@@ -1,19 +1,21 @@
 {
   "expo": {
-    "name": "hisab",
-    "slug": "hisab",
+    "name": "evenly",
+    "slug": "evenly",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
-    "scheme": "hisab",
+    "userInterfaceStyle": "light",
+    "scheme": "evenly",
     "experiments": {
       "typedRoutes": true
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dhyeypatel007.evenly"
     },
     "android": {
+      "package": "com.dhyeypatel007.evenly",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",

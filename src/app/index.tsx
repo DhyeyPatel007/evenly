@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useHisab } from '@/store';
+import { useEvenly } from '@/store';
 import { computeNets } from '@/settle';
 import { fmtDate, inr } from '@/format';
 import { C, F, R, S } from '@/theme';
@@ -14,7 +14,7 @@ export default function Dashboard() {
   const {
     ready, onboarded, self, groups, expenses,
     memberById, groupExpenses, loadDemo, clearAll,
-  } = useHisab();
+  } = useEvenly();
   const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
@@ -71,7 +71,7 @@ export default function Dashboard() {
   return (
     <Screen>
       <Header
-        title="Hisab"
+        title="Evenly"
         right={
           <Pressable onPress={more} style={styles.iconBtn} hitSlop={10}>
             <Ionicons name="ellipsis-horizontal" size={20} color={C.muted} />
@@ -83,7 +83,7 @@ export default function Dashboard() {
         <Empty
           icon={<Ionicons name="people-outline" size={30} color={C.muted} />}
           title="Split your first bill"
-          subtitle="Create a group for your roommates, friends or trip — then add expenses and let Hisab figure out who owes whom."
+          subtitle="Create a group for your roommates, friends or trip — then add expenses and let Evenly figure out who owes whom."
           action={
             <View style={{ gap: S.sm, width: '100%' }}>
               <Btn label="Create a group" onPress={() => router.push('/new-group')} />
