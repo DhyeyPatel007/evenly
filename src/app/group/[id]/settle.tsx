@@ -4,18 +4,16 @@ import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useEvenly } from '@/store';
 import { useAuth } from '@/auth';
+import { useSyncedGroup } from '@/useSyncedGroup';
 import { computeNets, simplifyDebts } from '@/settle';
 import { buildAppUpiUrl, UPI_APP_OPTIONS, type UpiAppOption } from '@/upi';
 import {
   cancelClaim,
   createClaim,
   decideClaim,
-  ensureServerGroup,
   fetchClaims,
-  fetchServerMembers,
   subscribeToClaims,
   type Claim,
-  type ServerMember,
 } from '@/claims';
 import { inr } from '@/format';
 import { C, F, S } from '@/theme';
@@ -31,15 +29,12 @@ function fmtWhen(iso: string): string {
 
 export default function Settle() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { ready, groups, groupExpenses, memberById, self, linkServerGroup } = useEvenly();
-  const { ready: authReady, userId, profile } = useAuth();
+  const { ready, groups, groupExpenses, memberById, self } = useEvenly();
+  const { ready: authReady, userId } = useAuth();
   const group = groups.find((g) => g.id === id);
   const selfMember = self();
+  const { serverGroupId, members: serverMembers, syncing, syncError } = useSyncedGroup(group);
 
-  const [serverGroupId, setServerGroupId] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [serverMembers, setServerMembers] = useState<ServerMember[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
   const [chooser, setChooser] = useState<{ toId: string; amount: number } | null>(null);
   const [draft, setDraft] = useState<{ toId: string; max: number } | null>(null);
@@ -48,72 +43,39 @@ export default function Settle() {
   const [rejectReason, setRejectReason] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Link (or create) the server group, then load members + claims.
+  const refreshClaims = async () => {
+    if (!serverGroupId) return;
+    try {
+      setClaims(await fetchClaims(serverGroupId));
+    } catch {
+      /* keep stale */
+    }
+  };
+
+  // Load claims once linked; realtime keeps them fresh afterwards.
   useEffect(() => {
-    if (!authReady || !userId || !profile || !group || !selfMember) return;
+    if (!serverGroupId) return;
     let live = true;
     (async () => {
-      setSyncing(true);
-      setSyncError(null);
       try {
-        const sid = await ensureServerGroup({
-          localServerId: group.serverId,
-          name: group.name,
-          selfProfileId: userId,
-          selfName: selfMember.name,
-        });
-        if (!live) return;
-        setServerGroupId(sid);
-        if (group.serverId !== sid) linkServerGroup(group.id, sid);
-        const [members, cl] = await Promise.all([
-          fetchServerMembers(sid),
-          fetchClaims(sid),
-        ]);
-        if (!live) return;
-        setServerMembers(members);
-        setClaims(cl);
-      } catch (e) {
-        if (live) setSyncError(e instanceof Error ? e.message : 'Sync failed');
-      } finally {
-        if (live) setSyncing(false);
+        const cl = await fetchClaims(serverGroupId);
+        if (live) setClaims(cl);
+      } catch {
+        /* keep empty */
       }
     })();
     return () => {
       live = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authReady, userId, group?.id]);
-
-  // Realtime: claim created / confirmed / rejected anywhere → refresh instantly.
-  useEffect(() => {
-    if (!serverGroupId) return;
-    return subscribeToClaims(serverGroupId, async () => {
-      try {
-        const [members, cl] = await Promise.all([
-          fetchServerMembers(serverGroupId),
-          fetchClaims(serverGroupId),
-        ]);
-        setServerMembers(members);
-        setClaims(cl);
-      } catch {
-        /* keep stale data on transient errors */
-      }
-    });
   }, [serverGroupId]);
 
-  const refresh = async () => {
+  useEffect(() => {
     if (!serverGroupId) return;
-    try {
-      const [members, cl] = await Promise.all([
-        fetchServerMembers(serverGroupId),
-        fetchClaims(serverGroupId),
-      ]);
-      setServerMembers(members);
-      setClaims(cl);
-    } catch {
-      /* ignore */
-    }
-  };
+    return subscribeToClaims(serverGroupId, () => {
+      refreshClaims();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverGroupId]);
 
   const memberNameOf = (profileId: string): string =>
     serverMembers.find((m) => m.profile_id === profileId)?.member_name ?? 'A member';
@@ -240,7 +202,7 @@ export default function Settle() {
         'Claim sent',
         `${memberNameOf(toProfile)} will see it as awaiting confirmation. The balance updates only after they confirm.`,
       );
-      refresh();
+      refreshClaims();
     }
   };
 
@@ -257,7 +219,7 @@ export default function Settle() {
             const err = await decideClaim(c.id, 'confirmed');
             setBusy(false);
             if (err) Alert.alert('Could not confirm', err);
-            else refresh();
+            else refreshClaims();
           },
         },
       ],
@@ -278,7 +240,7 @@ export default function Settle() {
     } else {
       setRejecting(null);
       setRejectReason('');
-      refresh();
+      refreshClaims();
     }
   };
 
@@ -291,7 +253,7 @@ export default function Settle() {
         onPress: async () => {
           const err = await cancelClaim(c.id);
           if (err) Alert.alert('Could not withdraw', err);
-          else refresh();
+          else refreshClaims();
         },
       },
     ]);

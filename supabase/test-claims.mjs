@@ -232,6 +232,48 @@ if (typeof WebSocket === 'undefined') {
   if (probeId) await A.from('payment_claims').delete().eq('id', probeId);
 }
 
+console.log('— invite + join —');
+const { data: grpRow } = await A.from('groups').select('invite_code').eq('id', gid).maybeSingle();
+ok(
+  !!grpRow?.invite_code && /^[A-Z0-9]{6}$/.test(grpRow.invite_code),
+  'group has a 6-char invite code',
+  grpRow?.invite_code,
+);
+
+const D = mk();
+const dId = await signUp(D, `evenly-test-d-${ts}@example.com`, 'Test Divya');
+const { data: joined, error: joinErr } = await D.rpc('join_group_by_code', {
+  code: grpRow.invite_code,
+});
+ok(!joinErr && joined?.id === gid, 'D joins the group with the invite code', joinErr?.message);
+const dMember = await D.from('group_members')
+  .select('member_name')
+  .eq('group_id', gid)
+  .eq('profile_id', dId)
+  .maybeSingle();
+ok(!!dMember, 'D has a membership row after joining');
+
+const { error: badCode } = await D.rpc('join_group_by_code', { code: 'ZZZZZZ' });
+ok(!!badCode, 'invalid invite code rejected');
+
+const { error: rnErr } = await D.from('group_members')
+  .update({ member_name: 'Divya' })
+  .eq('group_id', gid)
+  .eq('profile_id', dId);
+const dRenamed = await D.from('group_members')
+  .select('member_name')
+  .eq('group_id', gid)
+  .eq('profile_id', dId)
+  .maybeSingle();
+ok(!rnErr && dRenamed?.member_name === 'Divya', 'member can rename own membership row');
+
+const tamperName = await D.from('group_members')
+  .update({ member_name: 'Hacked' })
+  .eq('group_id', gid)
+  .eq('profile_id', aId)
+  .select('profile_id');
+ok((tamperName.data ?? []).length === 0, "cannot rename another member's row");
+
 console.log('— cleanup —');
 const { error: delErr } = await A.from('groups').delete().eq('id', gid);
 const gone = await A.from('payment_claims').select('id').eq('group_id', gid);

@@ -38,6 +38,8 @@ interface Store {
   deleteGroup(id: string): boolean;
   /** Links a local group to its Supabase sync group. */
   linkServerGroup(localId: string, serverId: string): void;
+  /** Creates a local mirror of a group joined via invite code. */
+  addSyncedGroup(name: string, serverId: string, selfMemberId: string, otherNames: string[]): string;
 
   addExpense(e: Omit<Expense, 'id'>): string;
   updateExpense(id: string, patch: Partial<Omit<Expense, 'id' | 'groupId'>>): void;
@@ -235,6 +237,41 @@ export function EvenlyProvider({ children }: { children: React.ReactNode }) {
           ...prev,
           groups: prev.groups.map((g) => (g.id === localId ? { ...g, serverId } : g)),
         })),
+      addSyncedGroup: (name, serverId, selfMemberId, otherNames) => {
+        const gid = uid();
+        const base = s.members.length;
+        const seen = new Set(
+          s.members.filter((m) => m.id === selfMemberId).map((m) => norm(m.name)),
+        );
+        const fresh: Member[] = [];
+        for (const raw of otherNames) {
+          const nm = raw.trim();
+          if (!nm || seen.has(norm(nm))) continue;
+          seen.add(norm(nm));
+          fresh.push({
+            id: `${uid()}-${fresh.length}`,
+            name: nm,
+            email: undefined,
+            upi: undefined,
+            colorIdx: (base + fresh.length) % 8,
+            active: true,
+          });
+        }
+        const g: Group = {
+          id: gid,
+          name: name.trim(),
+          memberIds: [selfMemberId, ...fresh.map((m) => m.id)],
+          archived: false,
+          createdAt: todayISO(),
+          serverId,
+        };
+        mutate((prev) => ({
+          ...prev,
+          members: [...prev.members, ...fresh],
+          groups: [...prev.groups, g],
+        }));
+        return gid;
+      },
 
       setGroupArchived: (id, archived) =>
         mutate((prev) => ({

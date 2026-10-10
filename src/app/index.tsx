@@ -4,19 +4,24 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useEvenly } from '@/store';
 import { useAuth } from '@/auth';
+import { fetchServerMembers, joinGroupByCode, updateMyMemberName } from '@/claims';
 import { computeNets } from '@/settle';
 import { fmtDate, inr } from '@/format';
 import { C, F, R, S } from '@/theme';
 import { AvatarStack } from '@/components/Avatar';
-import { Amount, Btn, Card, Divider, Empty, Header, Screen } from '@/components/ui';
+import { Amount, Btn, Card, Divider, Empty, Field, Header, Screen, TextField } from '@/components/ui';
 import { CATEGORIES } from '@/types';
 
 export default function Dashboard() {
   const {
     ready, onboarded, self, groups, expenses,
-    memberById, groupExpenses, loadDemo, clearAll,
+    memberById, groupExpenses, loadDemo, clearAll, addSyncedGroup,
   } = useEvenly();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
+  const [joinCode, setJoinCode] = useState('');
+  const [joinBusy, setJoinBusy] = useState(false);
+  const [joinError, setJoinError] = useState('');
 
   useEffect(() => {
     if (ready && !onboarded) router.replace('/onboarding');
@@ -42,7 +47,7 @@ export default function Dashboard() {
     [expenses],
   );
 
-  const { signOut, profile } = useAuth();
+  const { signOut, profile, userId } = useAuth();
 
   if (!ready || !onboarded) {
     return <Screen><Text style={styles.loading}>Loading…</Text></Screen>;
@@ -52,11 +57,43 @@ export default function Dashboard() {
 
   const more = () =>
     Alert.alert('Menu', profile ? `Signed in as ${profile.display_name}` : undefined, [
+      { text: 'Join group with code', onPress: () => { setJoinCode(''); setJoinError(''); setJoinOpen(true); } },
       { text: 'Sign out', style: 'destructive', onPress: confirmSignOut },
       { text: 'Explore demo data', onPress: loadDemo },
       { text: 'Clear all data', style: 'destructive', onPress: confirmClear },
       { text: 'Cancel', style: 'cancel' },
     ]);
+
+  const doJoin = async () => {
+    const code = joinCode.trim();
+    if (!code || joinBusy) return;
+    const me = self();
+    if (!me || !userId) return;
+    setJoinBusy(true);
+    setJoinError('');
+    try {
+      const srv = await joinGroupByCode(code);
+      const existing = groups.find((g) => g.serverId === srv.id);
+      if (existing) {
+        setJoinOpen(false);
+        router.push(`/group/${existing.id}`);
+        return;
+      }
+      const members = await fetchServerMembers(srv.id);
+      await updateMyMemberName(srv.id, me.name);
+      const others = members
+        .filter((m) => m.profile_id !== userId)
+        .map((m) => m.member_name);
+      const localId = addSyncedGroup(srv.name, srv.id, me.id, others);
+      setJoinOpen(false);
+      setJoinCode('');
+      router.push(`/group/${localId}`);
+    } catch (e) {
+      setJoinError(e instanceof Error ? e.message : 'Could not join the group.');
+    } finally {
+      setJoinBusy(false);
+    }
+  };
 
   const confirmSignOut = () =>
     Alert.alert('Sign out?', 'You will need to sign in again to sync payment claims.', [
@@ -247,6 +284,30 @@ export default function Dashboard() {
           </View>
         </Pressable>
       </Modal>
+
+      <Modal visible={joinOpen} transparent animationType="fade" onRequestClose={() => setJoinOpen(false)}>
+        <Pressable style={styles.sheetBg} onPress={() => setJoinOpen(false)}>
+          <View style={styles.sheet} onStartShouldSetResponder={() => true}>
+            <Text style={styles.sheetTitle}>Join group</Text>
+            <Text style={styles.sheetSub}>Enter the 6-character invite code shared by a member.</Text>
+            <Field label="Invite code">
+              <TextField
+                value={joinCode}
+                onChangeText={(t) => setJoinCode(t.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                placeholder="A1B2C3"
+                autoCapitalize="characters"
+                autoCorrect={false}
+                maxLength={6}
+                editable={!joinBusy}
+                style={styles.codeInput}
+              />
+            </Field>
+            {joinError ? <Text style={styles.joinError}>{joinError}</Text> : null}
+            <View style={{ height: S.md }} />
+            <Btn label={joinBusy ? 'Joining…' : 'Join group'} onPress={doJoin} disabled={joinBusy || joinCode.trim().length < 4} />
+          </View>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
@@ -300,6 +361,9 @@ const styles = StyleSheet.create({
     padding: S.lg, paddingBottom: S.xl, gap: 4,
   },
   sheetTitle: { fontFamily: F.bold, fontSize: 17, color: C.text, marginBottom: S.sm },
+  sheetSub: { fontFamily: F.regular, fontSize: 13, color: C.muted, marginBottom: S.sm },
+  codeInput: { fontFamily: F.bold, fontSize: 22, letterSpacing: 6, textAlign: 'center' },
+  joinError: { fontFamily: F.medium, fontSize: 13, color: C.red, marginTop: S.sm },
   sheetRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.line },
   sheetRowTxt: { fontFamily: F.semi, fontSize: 15, color: C.text },
 });

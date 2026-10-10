@@ -196,3 +196,40 @@ export function subscribeToClaims(serverGroupId: string, onChange: () => void): 
     supabase.removeChannel(channel);
   };
 }
+
+/** Join a synced group with its 6-character invite code. */
+export async function joinGroupByCode(code: string): Promise<{ id: string; name: string }> {
+  const clean = code.trim().toUpperCase();
+  if (!clean) throw new Error('Enter the invite code.');
+  const { data, error } = await supabase.rpc('join_group_by_code', { code: clean });
+  if (error) {
+    const msg = error.message || '';
+    throw new Error(
+      msg.includes('invalid invite code')
+        ? 'That code didn’t match any group. Check it and try again.'
+        : 'Could not join the group.',
+    );
+  }
+  return data as { id: string; name: string };
+}
+
+export async function fetchInviteCode(serverGroupId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('groups')
+    .select('invite_code')
+    .eq('id', serverGroupId)
+    .maybeSingle();
+  if (error) return null;
+  return (data as { invite_code: string } | null)?.invite_code ?? null;
+}
+
+/** Keep the server-side member name in sync with the local name. */
+export async function updateMyMemberName(serverGroupId: string, name: string): Promise<void> {
+  const { data: user } = await supabase.auth.getUser();
+  if (!user.user) return;
+  await supabase
+    .from('group_members')
+    .update({ member_name: name.trim() })
+    .eq('group_id', serverGroupId)
+    .eq('profile_id', user.user.id);
+}

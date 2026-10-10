@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react';
-import { Alert, FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, FlatList, Modal, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useEvenly } from '@/store';
+import { useSyncedGroup } from '@/useSyncedGroup';
+import { fetchInviteCode } from '@/claims';
 import { computeNets } from '@/settle';
 import { fmtDate, inr } from '@/format';
 import { C, F, R, S } from '@/theme';
@@ -22,6 +24,8 @@ export default function GroupDetail() {
   const [tab, setTab] = useState<Tab>('activity');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editName, setEditName] = useState('');
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
 
   const group = groups.find((g) => g.id === id);
   const expenses = useMemo(() => (id ? groupExpenses(id) : []), [id, groupExpenses]);
@@ -41,6 +45,27 @@ export default function GroupDetail() {
       .map((m) => ({ id: m.id, name: m.name, value: t.get(m.id) ?? 0, colorIdx: m.colorIdx }))
       .sort((a, b) => b.value - a.value);
   }, [expenses, members]);
+
+  const { serverGroupId } = useSyncedGroup(group);
+
+  useEffect(() => {
+    if (!inviteOpen || !serverGroupId) return;
+    let live = true;
+    (async () => {
+      const c = await fetchInviteCode(serverGroupId);
+      if (live) setInviteCode(c);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [inviteOpen, serverGroupId]);
+
+  const shareInvite = () => {
+    if (!inviteCode || !group) return;
+    Share.share({
+      message: `Join my Evenly group "${group.name}" — open Evenly, tap the menu, "Join group with code", and enter ${inviteCode}.`,
+    }).catch(() => {});
+  };
 
   if (!ready) return <Screen><Text style={styles.loading}>Loading…</Text></Screen>;
   if (!group) {
@@ -100,6 +125,9 @@ export default function GroupDetail() {
         onBack
         right={
           <View style={styles.headerActions}>
+            <Pressable onPress={() => { setInviteCode(null); setInviteOpen(true); }} style={styles.iconBtn} hitSlop={8}>
+              <Ionicons name="person-add-outline" size={20} color={C.muted} />
+            </Pressable>
             <Pressable onPress={() => router.push(`/group/${group.id}/members`)} style={styles.iconBtn} hitSlop={8}>
               <Ionicons name="people-outline" size={20} color={C.muted} />
             </Pressable>
@@ -333,6 +361,28 @@ export default function GroupDetail() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <Modal visible={inviteOpen} transparent animationType="fade" onRequestClose={() => setInviteOpen(false)}>
+        <Pressable style={styles.sheetBg} onPress={() => setInviteOpen(false)}>
+          <View style={styles.sheet} onStartShouldSetResponder={() => true}>
+            <Text style={styles.sheetTitle}>Invite members</Text>
+            <Text style={styles.inviteSub}>
+              Share this code — they install Evenly, sign in, and join from the menu. Their
+              payments then sync with this group.
+            </Text>
+            <View style={styles.codeBox}>
+              <Text style={styles.codeTxt}>{inviteCode ?? '······'}</Text>
+            </View>
+            <View style={{ height: S.sm }} />
+            <Btn
+              label="Share invite"
+              onPress={shareInvite}
+              disabled={!inviteCode}
+              icon={<Ionicons name="share-outline" size={16} color={C.white} />}
+            />
+          </View>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
@@ -394,4 +444,10 @@ const styles = StyleSheet.create({
   },
   sheetTitle: { fontFamily: F.bold, fontSize: 17, color: C.text },
   deleteHint: { fontFamily: F.regular, color: C.faint, fontSize: 12, textAlign: 'center' },
+  inviteSub: { fontFamily: F.regular, fontSize: 13, color: C.muted, lineHeight: 20 },
+  codeBox: {
+    backgroundColor: C.bg, borderWidth: 1, borderColor: C.line, borderRadius: R.md,
+    paddingVertical: S.lg, alignItems: 'center', marginTop: S.sm,
+  },
+  codeTxt: { fontFamily: F.bold, fontSize: 34, letterSpacing: 10, color: C.text },
 });
