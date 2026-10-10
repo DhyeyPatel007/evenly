@@ -1,10 +1,10 @@
-import { useMemo } from 'react';
-import { Alert, FlatList, Linking, StyleSheet, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Alert, FlatList, Linking, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useHisab } from '@/store';
 import { computeNets, simplifyDebts } from '@/settle';
-import { buildUpiUrl } from '@/upi';
+import { buildAppIntentUrl, buildUpiUrl, UPI_APPS } from '@/upi';
 import { inr, todayISO } from '@/format';
 import { C, F, S } from '@/theme';
 import { Avatar } from '@/components/Avatar';
@@ -21,27 +21,39 @@ export default function Settle() {
   const debtors = Object.values(nets).filter((n) => n < -0.005).length;
   const creditors = Object.values(nets).filter((n) => n > 0.005).length;
   const naive = debtors * creditors;
+  const [chooser, setChooser] = useState<{ toId: string; amount: number } | null>(null);
 
   if (!ready) return <Screen><Text style={styles.loading}>Loading…</Text></Screen>;
   if (!group) return <Screen><Header title="Settle up" onBack /></Screen>;
 
-  const payViaUpi = async (toId: string, amount: number) => {
+  const openUpi = async (toId: string, amount: number, pkg: string | null) => {
     const m = memberById(toId);
     if (!m?.upi) {
       Alert.alert('No UPI ID', 'Add a UPI ID for this member first (Members tab).');
       return;
     }
-    const url = buildUpiUrl({ vpa: m.upi, payeeName: m.name, amount });
+    const url = pkg
+      ? buildAppIntentUrl(pkg, { vpa: m.upi, payeeName: m.name, amount })
+      : buildUpiUrl({ vpa: m.upi, payeeName: m.name, amount });
+    setChooser(null);
     try {
-      // Open directly: on Android, canOpenURL is unreliable for
+      // Direct open: on Android, canOpenURL is unreliable for
       // non-http schemes due to package-visibility filtering.
       await Linking.openURL(url);
     } catch {
       Alert.alert(
-        'Could not open UPI app',
-        'Install a UPI app (GPay, PhonePe, Paytm or BHIM) to pay directly from Hisab.',
+        'Could not open the app',
+        pkg
+          ? 'That app does not seem to be installed on this device.'
+          : 'Install a UPI app (GPay, PhonePe, Paytm or BHIM) to pay directly from Hisab.',
       );
     }
+  };
+
+  /** Android gets Hisab's own app picker; other platforms use the OS default. */
+  const onPayPress = (toId: string, amount: number) => {
+    if (Platform.OS === 'android') setChooser({ toId, amount });
+    else openUpi(toId, amount, null);
   };
 
   const markPaid = (fromId: string, toId: string, amount: number) => {
@@ -114,7 +126,7 @@ export default function Settle() {
                   <View style={{ flex: 1 }}>
                     <Btn
                       label="Pay via UPI"
-                      onPress={() => payViaUpi(p.to, p.amount)}
+                      onPress={() => onPayPress(p.to, p.amount)}
                       disabled={!to?.upi}
                       icon={<Ionicons name="phone-portrait-outline" size={16} color={C.white} />}
                     />
@@ -131,6 +143,34 @@ export default function Settle() {
           }}
         />
       )}
+
+      <Modal visible={!!chooser} transparent animationType="fade" onRequestClose={() => setChooser(null)}>
+        <Pressable style={styles.sheetBg} onPress={() => setChooser(null)}>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>Pay with</Text>
+            <Text style={styles.sheetSub}>
+              {chooser ? `Pay ${inr(chooser.amount)} — choose the UPI app.` : ''}
+            </Text>
+            {[{ name: 'System default', pkg: null as string | null }, ...UPI_APPS].map((a) => (
+              <Pressable
+                key={a.name}
+                style={styles.appRow}
+                onPress={() => chooser && openUpi(chooser.toId, chooser.amount, a.pkg)}
+              >
+                <View style={styles.appIcon}>
+                  <Ionicons
+                    name={a.pkg ? 'wallet-outline' : 'apps-outline'}
+                    size={20}
+                    color={C.greenStrong}
+                  />
+                </View>
+                <Text style={styles.appName}>{a.name}</Text>
+                <Ionicons name="chevron-forward" size={18} color={C.faint} />
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
@@ -148,4 +188,21 @@ const styles = StyleSheet.create({
   arrow: { color: C.greenStrong, fontFamily: F.bold },
   actions: { flexDirection: 'row', gap: S.sm },
   noUpi: { fontFamily: F.regular, color: C.faint, fontSize: 12, marginTop: 8, textAlign: 'center' },
+  sheetBg: { flex: 1, backgroundColor: 'rgba(14,19,25,0.45)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: C.surface,
+    borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    padding: S.lg, paddingBottom: S.xl, gap: 2,
+  },
+  sheetTitle: { fontFamily: F.bold, fontSize: 17, color: C.text },
+  sheetSub: { fontFamily: F.regular, fontSize: 13, color: C.muted, marginBottom: S.sm },
+  appRow: {
+    flexDirection: 'row', alignItems: 'center', gap: S.md,
+    paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: C.line,
+  },
+  appIcon: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: C.greenDim, alignItems: 'center', justifyContent: 'center',
+  },
+  appName: { fontFamily: F.semi, fontSize: 15, color: C.text, flex: 1 },
 });
