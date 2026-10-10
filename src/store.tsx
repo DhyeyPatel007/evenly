@@ -36,6 +36,8 @@ interface Store {
   setGroupArchived(id: string, archived: boolean): void;
   /** Only allowed when the group has no expenses. */
   deleteGroup(id: string): boolean;
+  /** Links a local group to its Supabase sync group. */
+  linkServerGroup(localId: string, serverId: string): void;
 
   addExpense(e: Omit<Expense, 'id'>): string;
   updateExpense(id: string, patch: Partial<Omit<Expense, 'id' | 'groupId'>>): void;
@@ -227,6 +229,11 @@ export function EvenlyProvider({ children }: { children: React.ReactNode }) {
         mutate((prev) => ({
           ...prev,
           groups: prev.groups.map((g) => (g.id === id ? { ...g, name: name.trim() } : g)),
+        })),
+      linkServerGroup: (localId, serverId) =>
+        mutate((prev) => ({
+          ...prev,
+          groups: prev.groups.map((g) => (g.id === localId ? { ...g, serverId } : g)),
         })),
 
       setGroupArchived: (id, archived) =>

@@ -3,6 +3,7 @@ import { Alert, FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useEvenly } from '@/store';
+import { useAuth } from '@/auth';
 import { computeNets } from '@/settle';
 import { fmtDate, inr } from '@/format';
 import { C, F, R, S } from '@/theme';
@@ -41,6 +42,8 @@ export default function Dashboard() {
     [expenses],
   );
 
+  const { signOut, profile } = useAuth();
+
   if (!ready || !onboarded) {
     return <Screen><Text style={styles.loading}>Loading…</Text></Screen>;
   }
@@ -48,10 +51,17 @@ export default function Dashboard() {
   const net = owed - owe;
 
   const more = () =>
-    Alert.alert('Data', 'Manage your local data.', [
+    Alert.alert('Menu', profile ? `Signed in as ${profile.display_name}` : undefined, [
+      { text: 'Sign out', style: 'destructive', onPress: confirmSignOut },
       { text: 'Explore demo data', onPress: loadDemo },
       { text: 'Clear all data', style: 'destructive', onPress: confirmClear },
       { text: 'Cancel', style: 'cancel' },
+    ]);
+
+  const confirmSignOut = () =>
+    Alert.alert('Sign out?', 'You will need to sign in again to sync payment claims.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign out', style: 'destructive', onPress: () => signOut() },
     ]);
 
   const confirmClear = () =>

@@ -41,6 +41,8 @@ export interface Group {
   memberIds: string[];
   archived: boolean;
   createdAt: string; // ISO yyyy-mm-dd
+  /** Linked Supabase group id for payment-claim sync (undefined = local-only). */
+  serverId?: string;
 }
 
 export interface EvenlyState {
