@@ -15,51 +15,29 @@ export function isValidUpi(vpa: string): boolean {
   return /^[\w.\-]{2,256}@[a-zA-Z]{2,64}$/.test(vpa.trim());
 }
 
-export function buildUpiUrl({
-  vpa,
-  payeeName,
-  amount,
-  note = 'Hisab settle-up',
-}: {
-  vpa: string;
-  payeeName: string;
-  amount: number;
-  note?: string;
-}): string {
-  const params = new URLSearchParams({
-    pa: vpa.trim(),
-    pn: payeeName.trim(),
-    am: amount.toFixed(2),
-    cu: 'INR',
-    tn: note,
-    tr: `hisab${Date.now()}`,
-  });
-  return `upi://pay?${params.toString()}`;
-}
-
-export interface UpiApp {
+export interface UpiAppOption {
   name: string;
-  /** Android package name */
-  pkg: string;
+  /** Private URL scheme only that app handles — bypasses the OS default entirely. */
+  scheme: string;
+  /** Path after `scheme://` */
+  path: string;
 }
-
-/** Well-known UPI apps — user picks one, we fire a package-targeted intent. */
-export const UPI_APPS: UpiApp[] = [
-  { name: 'Google Pay', pkg: 'com.google.android.apps.nbu.paisa.user' },
-  { name: 'PhonePe', pkg: 'com.phonepe.app' },
-  { name: 'Paytm', pkg: 'net.one97.paytm' },
-  { name: 'BHIM UPI', pkg: 'in.org.npci.upiapp' },
-  { name: 'Amazon Pay', pkg: 'in.amazon.mShop.android.shopping' },
-  { name: 'WhatsApp Pay', pkg: 'com.whatsapp' },
-];
 
 /**
- * Android `intent://` URL that opens the payment in ONE specific app,
- * bypassing whatever the OS default is. React Native parses this into
- * a package-targeted Intent. Throws (via Linking) if the app isn't installed.
+ * Per-app deep links. Each scheme is registered by exactly one app, so
+ * tapping one can never land in a different app (e.g. WhatsApp Pay)
+ * even when that app is the OS default for generic `upi://` links.
+ * If the app isn't installed, Linking.openURL rejects and we show a notice.
  */
-export function buildAppIntentUrl(
-  pkg: string,
+export const UPI_APP_OPTIONS: UpiAppOption[] = [
+  { name: 'Google Pay', scheme: 'tez', path: 'upi/pay' },
+  { name: 'PhonePe', scheme: 'phonepe', path: 'pay' },
+  { name: 'Paytm', scheme: 'paytmmp', path: 'pay' },
+  { name: 'Other UPI app', scheme: 'upi', path: 'pay' },
+];
+
+export function buildAppUpiUrl(
+  opt: UpiAppOption,
   {
     vpa,
     payeeName,
@@ -80,5 +58,5 @@ export function buildAppIntentUrl(
     tn: note,
     tr: `hisab${Date.now()}`,
   });
-  return `intent://pay?${params.toString()}#Intent;scheme=upi;package=${pkg};end`;
+  return `${opt.scheme}://${opt.path}?${params.toString()}`;
 }

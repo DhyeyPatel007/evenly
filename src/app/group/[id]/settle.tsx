@@ -4,7 +4,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useHisab } from '@/store';
 import { computeNets, simplifyDebts } from '@/settle';
-import { buildAppIntentUrl, buildUpiUrl, UPI_APPS } from '@/upi';
+import { buildAppUpiUrl, UPI_APP_OPTIONS, type UpiAppOption } from '@/upi';
 import { inr, todayISO } from '@/format';
 import { C, F, S } from '@/theme';
 import { Avatar } from '@/components/Avatar';
@@ -26,15 +26,13 @@ export default function Settle() {
   if (!ready) return <Screen><Text style={styles.loading}>Loading…</Text></Screen>;
   if (!group) return <Screen><Header title="Settle up" onBack /></Screen>;
 
-  const openUpi = async (toId: string, amount: number, pkg: string | null) => {
+  const openUpi = async (toId: string, amount: number, opt: UpiAppOption) => {
     const m = memberById(toId);
     if (!m?.upi) {
       Alert.alert('No UPI ID', 'Add a UPI ID for this member first (Members tab).');
       return;
     }
-    const url = pkg
-      ? buildAppIntentUrl(pkg, { vpa: m.upi, payeeName: m.name, amount })
-      : buildUpiUrl({ vpa: m.upi, payeeName: m.name, amount });
+    const url = buildAppUpiUrl(opt, { vpa: m.upi, payeeName: m.name, amount });
     setChooser(null);
     try {
       // Direct open: on Android, canOpenURL is unreliable for
@@ -43,17 +41,17 @@ export default function Settle() {
     } catch {
       Alert.alert(
         'Could not open the app',
-        pkg
-          ? 'That app does not seem to be installed on this device.'
-          : 'Install a UPI app (GPay, PhonePe, Paytm or BHIM) to pay directly from Hisab.',
+        opt.scheme === 'upi'
+          ? 'No UPI app found on this device.'
+          : `${opt.name} does not seem to be installed on this device.`,
       );
     }
   };
 
-  /** Android gets Hisab's own app picker; other platforms use the OS default. */
+  /** Android gets Hisab's own app picker; other platforms use the generic link. */
   const onPayPress = (toId: string, amount: number) => {
     if (Platform.OS === 'android') setChooser({ toId, amount });
-    else openUpi(toId, amount, null);
+    else openUpi(toId, amount, UPI_APP_OPTIONS[3]);
   };
 
   const markPaid = (fromId: string, toId: string, amount: number) => {
@@ -151,15 +149,15 @@ export default function Settle() {
             <Text style={styles.sheetSub}>
               {chooser ? `Pay ${inr(chooser.amount)} — choose the UPI app.` : ''}
             </Text>
-            {[{ name: 'System default', pkg: null as string | null }, ...UPI_APPS].map((a) => (
+            {UPI_APP_OPTIONS.map((a) => (
               <Pressable
                 key={a.name}
                 style={styles.appRow}
-                onPress={() => chooser && openUpi(chooser.toId, chooser.amount, a.pkg)}
+                onPress={() => chooser && openUpi(chooser.toId, chooser.amount, a)}
               >
                 <View style={styles.appIcon}>
                   <Ionicons
-                    name={a.pkg ? 'wallet-outline' : 'apps-outline'}
+                    name={a.scheme === 'upi' ? 'apps-outline' : 'wallet-outline'}
                     size={20}
                     color={C.greenStrong}
                   />
