@@ -4,6 +4,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useHisab } from '@/store';
 import { computeNets, simplifyDebts } from '@/settle';
+import { buildUpiUrl } from '@/upi';
 import { inr, todayISO } from '@/format';
 import { C, F, S } from '@/theme';
 import { Avatar } from '@/components/Avatar';
@@ -30,14 +31,16 @@ export default function Settle() {
       Alert.alert('No UPI ID', 'Add a UPI ID for this member first (Members tab).');
       return;
     }
-    const url =
-      `upi://pay?pa=${m.upi}&pn=${encodeURIComponent(m.name)}` +
-      `&am=${amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent('Hisab settle-up')}`;
+    const url = buildUpiUrl({ vpa: m.upi, payeeName: m.name, amount });
     try {
-      if (await Linking.canOpenURL(url)) await Linking.openURL(url);
-      else Alert.alert('UPI not available', 'No UPI app found on this device.');
+      // Open directly: on Android, canOpenURL is unreliable for
+      // non-http schemes due to package-visibility filtering.
+      await Linking.openURL(url);
     } catch {
-      Alert.alert('UPI not available', 'Could not open a UPI app.');
+      Alert.alert(
+        'Could not open UPI app',
+        'Install a UPI app (GPay, PhonePe, Paytm or BHIM) to pay directly from Hisab.',
+      );
     }
   };
 

@@ -3,6 +3,7 @@ import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native
 import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useHisab } from '@/store';
+import { isValidUpi } from '@/upi';
 import { C, F, R, S } from '@/theme';
 import { Avatar } from '@/components/Avatar';
 import { Btn, Card, Empty, Field, Header, Screen, TextField } from '@/components/ui';
@@ -115,6 +116,9 @@ export default function Members() {
           <Field label="UPI ID (optional)" hint="Used for one-tap settle-up payments.">
             <TextField placeholder="name@okhdfc" value={fUpi} onChangeText={setFUpi} autoCapitalize="none" />
           </Field>
+          {fUpi.trim() && !isValidUpi(fUpi) ? (
+            <Text style={styles.upiWarn}>Doesn’t look like a valid UPI ID — e.g. name@okhdfc</Text>
+          ) : null}
           {fError ? <Text style={styles.error}>{fError}</Text> : null}
           <View style={{ flexDirection: 'row', gap: S.sm }}>
             <View style={{ flex: 1 }}>
@@ -214,4 +218,5 @@ const styles = StyleSheet.create({
   restoreTxt: { fontFamily: F.bold, color: C.greenStrong, fontSize: 13 },
   formTitle: { fontFamily: F.bold, color: C.text, fontSize: 16 },
   error: { fontFamily: F.medium, color: C.red, fontSize: 13 },
+  upiWarn: { fontFamily: F.medium, color: C.amber, fontSize: 12, marginTop: -2 },
 });
