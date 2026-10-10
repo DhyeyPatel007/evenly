@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, FlatList, Linking, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useHisab } from '@/store';
@@ -48,11 +48,8 @@ export default function Settle() {
     }
   };
 
-  /** Android gets Hisab's own app picker; other platforms use the generic link. */
-  const onPayPress = (toId: string, amount: number) => {
-    if (Platform.OS === 'android') setChooser({ toId, amount });
-    else openUpi(toId, amount, UPI_APP_OPTIONS[3]);
-  };
+  /** Both platforms get Hisab's own app picker — the per-app schemes work on iOS too. */
+  const onPayPress = (toId: string, amount: number) => setChooser({ toId, amount });
 
   const markPaid = (fromId: string, toId: string, amount: number) => {
     const from = memberById(fromId);
