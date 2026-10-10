@@ -159,6 +159,15 @@ ok(
   'payer cannot tamper with claim amount',
 );
 
+const { error: rejErr } = await B.from('payment_claims')
+  .update({ status: 'rejected', reject_reason: 'money never arrived' })
+  .eq('id', c2.id);
+const c2Rejected = await claimById(B, c2.id);
+ok(
+  !rejErr && c2Rejected.status === 'rejected' && c2Rejected.reject_reason === 'money never arrived',
+  'recipient rejects with reason → rejected + reason recorded',
+);
+
 const { data: c3 } = await A.from('payment_claims')
   .insert({
     group_id: gid, payer_profile_id: aId, recipient_profile_id: bId,
@@ -166,6 +175,8 @@ const { data: c3 } = await A.from('payment_claims')
   })
   .select()
   .single();
+ok(c3?.status === 'pending', 'new claim allowed after previous one decided');
+
 const noReason = await B.from('payment_claims')
   .update({ status: 'rejected' })
   .eq('id', c3.id);
@@ -175,14 +186,11 @@ ok(
   noReason.error?.code,
 );
 
-const { error: rejErr } = await B.from('payment_claims')
-  .update({ status: 'rejected', reject_reason: 'money never arrived' })
-  .eq('id', c2.id);
-const c2Rejected = await claimById(B, c2.id);
-ok(
-  !rejErr && c2Rejected.status === 'rejected' && c2Rejected.reject_reason === 'money never arrived',
-  'recipient rejects with reason → rejected + reason recorded',
-);
+// Decide c3 so the realtime probe below isn't blocked by the unique index.
+const { error: rej3Err } = await B.from('payment_claims')
+  .update({ status: 'rejected', reject_reason: 'test cleanup' })
+  .eq('id', c3.id);
+ok(!rej3Err, 'cleanup: probe claim decided');
 
 console.log('— ledger + realtime —');
 const ledgerA = await A.from('payment_claims')
@@ -201,24 +209,27 @@ if (typeof WebSocket === 'undefined') {
   console.log('  SKIP  realtime (no WebSocket in this node runtime)');
 } else {
   let got = null;
+  let subscribed = false;
   const ch = B.channel(`rt-${ts}`).on(
     'postgres_changes',
     { event: '*', schema: 'public', table: 'payment_claims', filter: `group_id=eq.${gid}` },
     (payload) => { got = payload; },
   );
-  ch.subscribe();
-  await new Promise((r) => setTimeout(r, 2500)); // let the subscription establish
-  await A.from('payment_claims').insert({
+  ch.subscribe((status) => { if (status === 'SUBSCRIBED') subscribed = true; });
+  const subDeadline = Date.now() + 15000;
+  while (!subscribed && Date.now() < subDeadline) await new Promise((r) => setTimeout(r, 250));
+  ok(subscribed, 'realtime subscription established');
+  const ins = await A.from('payment_claims').insert({
     group_id: gid, payer_profile_id: aId, recipient_profile_id: bId,
     amount: 50, created_by: aId,
-  });
-  const deadline = Date.now() + 12000;
+  }).select('id');
+  ok(!ins.error, 'probe claim inserted', ins.error?.message);
+  const deadline = Date.now() + 15000;
   while (!got && Date.now() < deadline) await new Promise((r) => setTimeout(r, 500));
   ok(!!got && got.eventType === 'INSERT', 'realtime pushes new claim to the other member');
   await B.removeChannel(ch);
-  // withdraw the realtime probe claim (payer cancels own pending)
-  const probe = await claimById(A, got?.new?.id ?? '');
-  if (probe) await A.from('payment_claims').delete().eq('id', probe.id);
+  const probeId = ins.data?.[0]?.id;
+  if (probeId) await A.from('payment_claims').delete().eq('id', probeId);
 }
 
 console.log('— cleanup —');
