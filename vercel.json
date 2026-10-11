@@ -1,1 +1,1 @@
-{"buildCommand":"npx expo export --platform web","framework":null,"installCommand":"npm install","outputDirectory":"dist"}
+{"buildCommand":"npx expo export --platform web && node scripts/inject-pwa-head.mjs","framework":null,"installCommand":"npm install","outputDirectory":"dist","rewrites":[{"destination":"/index.html","source":"/(.*)"}]}

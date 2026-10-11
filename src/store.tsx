@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Expense, Group, EvenlyState, Member, MemberInput } from './types';
-import { demoData } from './data';
 import { todayISO, uid } from './format';
 
 const KEY = '@evenly/v2';
@@ -45,7 +44,6 @@ interface Store {
   updateExpense(id: string, patch: Partial<Omit<Expense, 'id' | 'groupId'>>): void;
   deleteExpense(id: string): void;
 
-  loadDemo(): void;
   clearAll(): void;
 }
 
@@ -312,7 +310,6 @@ export function EvenlyProvider({ children }: { children: React.ReactNode }) {
       deleteExpense: (id) =>
         mutate((prev) => ({ ...prev, expenses: prev.expenses.filter((e) => e.id !== id) })),
 
-      loadDemo: () => setState({ ...demoData(), onboarded: true }),
       clearAll: () => setState({ onboarded: false, members: [], groups: [], expenses: [] }),
     };
   }, [state]);

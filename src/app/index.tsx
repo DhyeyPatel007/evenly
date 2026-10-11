@@ -15,7 +15,7 @@ import { CATEGORIES } from '@/types';
 export default function Dashboard() {
   const {
     ready, onboarded, self, groups, expenses,
-    memberById, groupExpenses, loadDemo, clearAll, addSyncedGroup,
+    memberById, groupExpenses, clearAll, addSyncedGroup,
   } = useEvenly();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
@@ -59,7 +59,6 @@ export default function Dashboard() {
     Alert.alert('Menu', profile ? `Signed in as ${profile.display_name}` : undefined, [
       { text: 'Join group with code', onPress: () => { setJoinCode(''); setJoinError(''); setJoinOpen(true); } },
       { text: 'Sign out', style: 'destructive', onPress: confirmSignOut },
-      { text: 'Explore demo data', onPress: loadDemo },
       { text: 'Clear all data', style: 'destructive', onPress: confirmClear },
       { text: 'Cancel', style: 'cancel' },
     ]);
@@ -134,7 +133,6 @@ export default function Dashboard() {
           action={
             <View style={{ gap: S.sm, width: '100%' }}>
               <Btn label="Create a group" onPress={() => router.push('/new-group')} />
-              <Btn label="Explore with demo data" variant="secondary" onPress={loadDemo} />
             </View>
           }
         />
